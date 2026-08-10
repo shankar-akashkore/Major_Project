@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Node
+node_modules/
+.next/
+out/
+dist/
+*.tsbuildinfo
+
+# Env & secrets
+.env
+.env.local
+.env.*.local
+
+# Local data — media must live in object storage, never in git
+*.db
+*.sqlite3
+fixtures/uploads/*
+fixtures/generations/*
+!fixtures/**/.gitkeep
+!fixtures/golden/**/*.json
+
+# ML artifacts (weights live in Colab / object storage)
+*.pt
+*.pth
+*.onnx
+*.safetensors
+packages/ml/checkpoints/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/

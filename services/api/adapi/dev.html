@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ad Generation — dev harness</title>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #171a21; --line: #262b36; --ink: #e8eaf0;
+    --muted: #9aa3b2; --accent: #7aa2f7; --good: #5dd39e; --warn: #f7c96b; --bad: #f77a7a;
+    --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  @media (prefers-color-scheme: light) {
+    :root { --bg:#f7f8fa; --panel:#fff; --line:#e2e5ea; --ink:#1a1d23; --muted:#5c6472; --accent:#3060c0; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; padding:24px; background:var(--bg); color:var(--ink);
+         font:15px/1.5 ui-sans-serif, system-ui, -apple-system, sans-serif; }
+  .wrap { max-width: 1100px; margin: 0 auto; }
+  h1 { font-size:20px; margin:0 0 4px; }
+  .sub { color:var(--muted); font-size:13px; margin-bottom:20px; }
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:10px;
+           padding:16px; margin-bottom:16px; }
+  .row { display:flex; gap:12px; flex-wrap:wrap; align-items:end; }
+  label { display:block; font-size:12px; color:var(--muted); margin-bottom:4px; }
+  select, input { background:var(--bg); color:var(--ink); border:1px solid var(--line);
+                  border-radius:6px; padding:7px 9px; font:inherit; font-size:14px; }
+  button { background:var(--accent); color:#fff; border:0; border-radius:6px;
+           padding:9px 16px; font:inherit; font-weight:600; cursor:pointer; }
+  button:disabled { opacity:.5; cursor:default; }
+  .banner { font:13px/1.4 var(--mono); padding:10px 12px; border-radius:8px;
+            border:1px solid var(--line); margin-bottom:16px; }
+  .bar { height:6px; background:var(--line); border-radius:3px; overflow:hidden; margin:10px 0; }
+  .bar > i { display:block; height:100%; background:var(--accent); width:0; transition:width .25s; }
+  .log { font:12px/1.55 var(--mono); max-height:220px; overflow:auto; margin:0;
+         white-space:pre-wrap; color:var(--muted); }
+  .log b { color:var(--ink); font-weight:600; }
+  .grid { display:grid; gap:14px; grid-template-columns:repeat(auto-fill, minmax(240px,1fr)); }
+  .card { background:var(--bg); border:1px solid var(--line); border-radius:8px; overflow:hidden; }
+  .card img { width:100%; display:block; background:#000; }
+  .card .body { padding:10px 12px; }
+  .name { font-weight:600; font-size:14px; margin-bottom:6px; }
+  .kv { display:flex; justify-content:space-between; font:12px var(--mono); color:var(--muted); }
+  .kv b { color:var(--ink); font-weight:600; }
+  .pill { display:inline-block; font-size:11px; padding:2px 7px; border-radius:99px;
+          border:1px solid var(--line); color:var(--muted); margin:2px 4px 2px 0; }
+  .pill.good { color:var(--good); border-color:var(--good); }
+  .pill.bad  { color:var(--bad);  border-color:var(--bad); }
+  .pill.warn { color:var(--warn); border-color:var(--warn); }
+  .rank { display:flex; gap:14px; padding:14px 0; border-top:1px solid var(--line); }
+  .rank:first-of-type { border-top:0; }
+  .rank .n { font-size:26px; font-weight:700; color:var(--accent); min-width:38px; }
+  .rank video, .rank img.clip { width:150px; border-radius:6px; background:#000; display:block; }
+  .why { font-size:13px; color:var(--muted); margin-top:5px; }
+  h2 { font-size:15px; margin:0 0 12px; }
+  .muted { color:var(--muted); font-size:13px; }
+  .shift-up { color:var(--good); } .shift-down { color:var(--bad); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Multi-Candidate Ad Generation — dev harness</h1>
+  <div class="sub">Inspection surface for the pipeline. Not the product UI.</div>
+
+  <div id="banner" class="banner">loading…</div>
+
+  <div class="panel">
+    <div class="row">
+      <div>
+        <label for="platform">Platform (drives aspect ratio)</label>
+        <select id="platform"></select>
+      </div>
+      <div>
+        <label for="duration">Duration (s)</label>
+        <select id="duration">
+          <option>8</option><option selected>9</option><option>10</option>
+        </select>
+      </div>
+      <div>
+        <label for="seed">Seed</label>
+        <input id="seed" type="number" value="7" style="width:90px">
+      </div>
+      <button id="run">Run demo job</button>
+    </div>
+    <div class="bar"><i id="progress"></i></div>
+    <pre class="log" id="log">Idle.</pre>
+  </div>
+
+  <div id="results"></div>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const pct = (v) => (v * 100).toFixed(0) + '%';
+
+// Kept so the banner can be rebuilt from scratch each refresh. Appending the
+// budget to the existing text duplicated it on every poll.
+let modeBanner = '';
+
+async function loadConfig() {
+  const cfg = await (await fetch('/api/config')).json();
+  modeBanner = cfg.banner;
+  $('banner').textContent = modeBanner;
+  $('banner').style.borderColor = cfg.is_live ? 'var(--warn)' : 'var(--good)';
+  const sel = $('platform');
+  for (const [name, meta] of Object.entries(cfg.platforms)) {
+    const o = document.createElement('option');
+    o.value = name;
+    o.textContent = `${name.replace(/_/g, ' ')} · ${meta.aspect_ratio}`;
+    sel.appendChild(o);
+  }
+  await refreshBudget();
+}
+
+async function refreshBudget() {
+  const b = await (await fetch('/api/budget')).json();
+  const left = (b.total_budget_usd - b.spent_usd).toFixed(4);
+  $('banner').textContent =
+    `${modeBanner}   |   spent $${b.spent_usd.toFixed(4)} of ` +
+    `$${b.total_budget_usd.toFixed(2)} · $${left} left`;
+}
+
+function logLine(html) {
+  const el = $('log');
+  if (el.textContent === 'Idle.') el.textContent = '';
+  el.innerHTML += html + '\n';
+  el.scrollTop = el.scrollHeight;
+}
+
+$('run').onclick = async () => {
+  $('run').disabled = true;
+  $('log').textContent = '';
+  $('results').innerHTML = '';
+  $('progress').style.width = '0';
+
+  const params = new URLSearchParams({
+    platform: $('platform').value,
+    duration_seconds: $('duration').value,
+    seed: $('seed').value,
+  });
+  const { job_id } = await (await fetch('/api/jobs/demo?' + params, { method: 'POST' })).json();
+  logLine(`<b>job ${job_id}</b> queued`);
+
+  const es = new EventSource(`/api/jobs/${job_id}/events`);
+  es.onmessage = (m) => {
+    const e = JSON.parse(m.data);
+    const overall = (e.stage_index !== undefined ? e.stage_index : 0);
+    if (e.state === 'started' || e.state === 'completed' || e.state === 'failed') {
+      logLine(`[${e.stage.padEnd(13)}] <b>${e.state}</b> ${e.message || ''}`);
+    } else if (e.message) {
+      logLine(`[${e.stage.padEnd(13)}] ${e.message}`);
+    }
+    // Progress is recomputed client-side from the stage ordering.
+    const stages = ['intake','brief','image_gen','quality_gate','image_rank','video_gen','video_rank','delivery'];
+    const idx = stages.indexOf(e.stage);
+    if (idx >= 0) $('progress').style.width = pct((idx + (e.progress || 0)) / stages.length);
+  };
+  es.addEventListener('done', async () => {
+    es.close();
+    $('progress').style.width = '100%';
+    await render(job_id);
+    await refreshBudget();
+    $('run').disabled = false;
+  });
+  es.onerror = () => { es.close(); $('run').disabled = false; };
+};
+
+function clipTag(asset) {
+  const isVideo = asset.mime_type === 'video/mp4';
+  return isVideo
+    ? `<video src="/media/${asset.key}" autoplay loop muted playsinline></video>`
+    : `<img class="clip" src="/media/${asset.key}" alt="">`;
+}
+
+async function render(jobId) {
+  const rec = await (await fetch(`/api/jobs/${jobId}`)).json();
+  const out = $('results');
+
+  if (rec.state !== 'completed') {
+    out.innerHTML = `<div class="panel"><h2>Job ${rec.state}</h2>
+      <div class="muted">${rec.error || rec.refusal_reason || ''}</div></div>`;
+    return;
+  }
+
+  const r = rec.result;
+  const letter = (i) => String.fromCharCode(65 + i);
+  const briefs = r.briefs;
+
+  let html = `<div class="panel">
+    <h2>Stage 3–5 · image candidates &amp; pre-video ranking</h2>
+    <div class="muted" style="margin-bottom:12px">
+      Sampler: ${briefs.sampler} · min pairwise design distance
+      <b>${briefs.min_pairwise_distance}/4</b>
+      (4 = every candidate differs on every axis)
+    </div>
+    <div class="grid">`;
+
+  const imgOrder = r.images
+    .filter(c => c.score)
+    .sort((a, b) => b.score.overall - a.score.overall)
+    .map(c => c.index);
+
+  for (const c of r.images) {
+    const dp = c.brief.design_point;
+    const gate = c.gate;
+    const verdict = gate.verdict === 'pass' ? 'good' : 'bad';
+    const pending = gate.checks.filter(x => !x.implemented).map(x => x.name);
+    const ran = gate.checks.filter(x => x.implemented);
+    html += `<div class="card">
+      <img src="/media/${c.asset.key}" alt="">
+      <div class="body">
+        <div class="name">${letter(c.index)} · predicted #${imgOrder.indexOf(c.index) + 1}</div>
+        <div class="kv"><span>image score</span><b>${c.score ? c.score.overall.toFixed(4) : '—'}</b></div>
+        <div class="kv"><span>angle</span><b>${dp.angle.replace(/_/g,' ')}</b></div>
+        <div class="kv"><span>lighting</span><b>${dp.lighting.replace(/_/g,' ')}</b></div>
+        <div class="kv"><span>composition</span><b>${dp.composition.replace(/_/g,' ')}</b></div>
+        <div class="kv"><span>motion</span><b>${dp.motion.replace(/_/g,' ')}</b></div>
+        <div style="margin-top:8px">
+          <span class="pill ${verdict}">gate: ${gate.verdict}</span>
+          ${ran.map(x => `<span class="pill ${x.passed?'good':'bad'}">${x.name} ${x.value.toFixed(2)}</span>`).join('')}
+          ${pending.length ? `<span class="pill warn">${pending.length} checks pending models</span>` : ''}
+        </div>
+      </div></div>`;
+  }
+  html += `</div></div>`;
+
+  html += `<div class="panel"><h2>Stage 7 · final ranking</h2>`;
+  for (const rc of r.ranking) {
+    const v = rc.video, s = v.score;
+    const shift = rc.image_stage_rank === null ? null : rc.image_stage_rank - rc.rank;
+    const shiftHtml = shift === null ? ''
+      : shift === 0 ? `<span class="muted">· image stage agreed</span>`
+      : `<span class="${shift>0?'shift-up':'shift-down'}">· moved ${shift>0?'up':'down'} ${Math.abs(shift)} from image rank ${rc.image_stage_rank}</span>`;
+    html += `<div class="rank">
+      <div class="n">#${rc.rank}</div>
+      <div>${clipTag(v.asset)}</div>
+      <div style="flex:1">
+        <div class="name">Candidate ${letter(v.source_image_index)} ${shiftHtml}</div>
+        <div class="kv"><span>overall</span><b>${s.overall.toFixed(4)}</b></div>
+        <div class="kv"><span>hook (first second)</span><b>${pct(s.hook_strength)}</b></div>
+        <div class="kv"><span>temporal consistency</span><b>${pct(s.temporal_consistency)}</b></div>
+        <div class="kv"><span>motion quality</span><b>${pct(s.motion_quality)}</b></div>
+        <div class="kv"><span>product screen time</span><b>${pct(s.product_screen_time)}</b></div>
+        <div class="kv"><span>duration</span><b>${v.duration_seconds}s ${v.was_chained?'(chained)':'(native)'}</b></div>
+        <div class="why">${rc.explanation}</div>
+      </div></div>`;
+  }
+  html += `</div>`;
+
+  const agree = JSON.stringify(imgOrder) === JSON.stringify(r.ranking.map(x => x.video.source_image_index));
+  html += `<div class="panel">
+    <h2>Cascade measurement</h2>
+    <div class="kv"><span>image-stage order</span><b>${imgOrder.map(letter).join(' > ')}</b></div>
+    <div class="kv"><span>video-stage order</span><b>${r.ranking.map(x=>letter(x.video.source_image_index)).join(' > ')}</b></div>
+    <div class="kv"><span>orders agree</span><b>${agree ? 'yes' : 'no'}</b></div>
+    <div class="kv"><span>job cost</span><b>$${r.total_cost_usd.toFixed(4)}</b></div>
+    <div class="why">Agreement between these two orderings, measured over many jobs,
+      is the project's headline result: whether a still frame predicts how its
+      animated version will rank.</div>
+  </div>`;
+
+  out.innerHTML = html;
+}
+
+loadConfig();
+</script>
+</body>
+</html>
