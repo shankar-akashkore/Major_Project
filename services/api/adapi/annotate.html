@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Which ad would you click?</title>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #171a21; --line: #262b36; --ink: #e8eaf0;
+    --muted: #9aa3b2; --accent: #7aa2f7; --good: #5dd39e;
+    --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  @media (prefers-color-scheme: light) {
+    :root { --bg:#f7f8fa; --panel:#fff; --line:#e2e5ea; --ink:#1a1d23; --muted:#5c6472; --accent:#3060c0; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; padding:20px; background:var(--bg); color:var(--ink);
+         font:15px/1.5 ui-sans-serif, system-ui, -apple-system, sans-serif; }
+  .wrap { max-width: 900px; margin: 0 auto; }
+  h1 { font-size:19px; margin:0 0 4px; }
+  .sub { color:var(--muted); font-size:13px; margin-bottom:18px; }
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:10px;
+           padding:18px; margin-bottom:14px; }
+  label { display:block; font-size:12px; color:var(--muted); margin-bottom:4px; }
+  input[type=text] { background:var(--bg); color:var(--ink); border:1px solid var(--line);
+                     border-radius:6px; padding:8px 10px; font:inherit; width:100%; }
+  button { background:var(--accent); color:#fff; border:0; border-radius:6px;
+           padding:10px 18px; font:inherit; font-weight:600; cursor:pointer; }
+  button:disabled { opacity:.45; cursor:default; }
+  button.ghost { background:transparent; color:var(--muted); border:1px solid var(--line);
+                 font-weight:500; padding:8px 14px; }
+  .field { margin-bottom:14px; }
+  .consent { display:flex; gap:10px; align-items:flex-start; font-size:13px;
+             color:var(--muted); line-height:1.45; }
+  .consent input { margin-top:3px; }
+
+  /* Two large, equal choice targets. Equal is the point: any asymmetry in size,
+     border or position becomes a bias in the data. */
+  .pair { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+  .side { background:var(--panel); border:2px solid var(--line); border-radius:10px;
+          padding:8px; cursor:pointer; text-align:center; }
+  .side:hover, .side.armed { border-color:var(--accent); }
+  .side img { width:100%; display:block; border-radius:6px; background:#000;
+              aspect-ratio: 9 / 16; object-fit: contain; }
+  .side .key { font:12px var(--mono); color:var(--muted); margin-top:7px; }
+  .tools { display:flex; gap:10px; justify-content:center; align-items:center;
+           margin:16px 0 4px; flex-wrap:wrap; }
+  .count { font:12px var(--mono); color:var(--muted); text-align:center; }
+  .hint { font-size:12px; color:var(--muted); text-align:center; margin-top:10px; }
+  .done { text-align:center; padding:30px 10px; }
+  .done .big { font-size:34px; margin-bottom:8px; }
+  .err { color:#f77a7a; font-size:13px; margin-top:10px; }
+  .loading { color:var(--muted); font:13px var(--mono); text-align:center; padding:40px 0; }
+  @media (max-width: 640px) {
+    .pair { grid-template-columns:1fr; }
+    .side img { aspect-ratio: 4 / 5; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- Enrolment ---------------------------------------------------------- -->
+  <div class="panel" id="enrol" hidden>
+    <h1>Which ad would you click?</h1>
+    <p class="sub">
+      You will see two advertisement images at a time. Pick the one you would be
+      more likely to stop and click on. There is no right answer — go on instinct,
+      it should take a couple of seconds each.
+    </p>
+    <div class="field">
+      <label for="label">Your name or nickname</label>
+      <input type="text" id="label" maxlength="64" placeholder="e.g. Priya">
+    </div>
+    <div class="field">
+      <label for="cohort">Group (optional)</label>
+      <input type="text" id="cohort" maxlength="32" placeholder="e.g. classmate, design student">
+    </div>
+    <div class="field consent">
+      <input type="checkbox" id="consent">
+      <label for="consent" style="font-size:13px;color:var(--muted);margin:0">
+        I agree that my anonymised choices may be used as research data in this
+        final-year project's evaluation. No personal data beyond the name above is
+        stored, and the name is never published.
+      </label>
+    </div>
+    <button id="start" disabled>Start</button>
+    <div class="err" id="enrolErr"></div>
+  </div>
+
+  <!-- Comparison --------------------------------------------------------- -->
+  <div id="task" hidden>
+    <div class="pair">
+      <div class="side" id="sideLeft">
+        <img id="imgLeft" alt="Option 1">
+        <div class="key">← or click &nbsp;·&nbsp; 1</div>
+      </div>
+      <div class="side" id="sideRight">
+        <img id="imgRight" alt="Option 2">
+        <div class="key">→ or click &nbsp;·&nbsp; 2</div>
+      </div>
+    </div>
+    <div class="tools">
+      <button class="ghost" id="tie">Too close to call &nbsp;(↓)</button>
+    </div>
+    <div class="count" id="count"></div>
+    <div class="hint">Go on first impression. Skipping with “too close to call” is fine and is recorded as a tie.</div>
+    <div class="err" id="taskErr"></div>
+  </div>
+
+  <div class="loading" id="loading">loading…</div>
+
+  <!-- Finished ----------------------------------------------------------- -->
+  <div class="panel done" id="done" hidden>
+    <div class="big">✔</div>
+    <div>That is everything for now — thank you.</div>
+    <div class="count" id="doneCount" style="margin-top:10px"></div>
+  </div>
+
+</div>
+<script>
+const $ = (id) => document.getElementById(id);
+const KEY = "adgen.annotator";
+
+let annotator = localStorage.getItem(KEY);
+let current = null;      // { pair_id, left, right }
+let prefetched = null;   // the next pair, images already warm
+let shownAt = 0;         // when both images finished painting
+let locked = false;      // guards against a double keypress double-submitting
+
+function show(which) {
+  for (const id of ["enrol", "task", "done", "loading"]) $(id).hidden = (id !== which);
+}
+
+// --- Enrolment -------------------------------------------------------------
+
+$("consent").addEventListener("change", () => { $("start").disabled = !$("consent").checked; });
+
+$("start").addEventListener("click", async () => {
+  $("start").disabled = true;
+  try {
+    const res = await fetch("/api/annotate/enrol", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        label: $("label").value,
+        cohort: $("cohort").value,
+        agreed_to_research_use: $("consent").checked,
+      }),
+    });
+    if (!res.ok) throw new Error((await res.json()).detail || res.statusText);
+    annotator = (await res.json()).annotator_id;
+    localStorage.setItem(KEY, annotator);
+    await advance();
+  } catch (err) {
+    $("enrolErr").textContent = String(err.message || err);
+    $("start").disabled = false;
+  }
+});
+
+// --- Serving ---------------------------------------------------------------
+
+async function fetchPair() {
+  const res = await fetch(`/api/annotate/next/${annotator}`);
+  if (res.status === 404) {           // unknown annotator: forget and re-enrol
+    localStorage.removeItem(KEY);
+    annotator = null;
+    return null;
+  }
+  if (!res.ok) throw new Error(res.statusText);
+  const text = await res.text();
+  return text === "null" ? "exhausted" : JSON.parse(text);
+}
+
+// Decode the images off-screen before they are needed. Without this the measured
+// latency would include the image download, which is network noise rather than
+// the decision time the quality checks are trying to read.
+function warm(pair) {
+  if (!pair || pair === "exhausted") return pair;
+  for (const side of [pair.left, pair.right]) {
+    const img = new Image();
+    img.src = side.url;
+  }
+  return pair;
+}
+
+async function advance() {
+  let pair = prefetched;
+  prefetched = null;
+  if (!pair) {
+    show("loading");
+    pair = await fetchPair();
+  }
+  if (pair === null) { show("enrol"); return; }
+  if (pair === "exhausted") {
+    $("doneCount").textContent = `${current ? current.judged_by_you + 1 : 0} comparisons recorded`;
+    show("done");
+    return;
+  }
+
+  current = pair;
+  locked = true;                       // no input until both images are painted
+  let painted = 0;
+  const ready = () => {
+    if (++painted === 2) { shownAt = performance.now(); locked = false; }
+  };
+  $("imgLeft").onload = $("imgLeft").onerror = ready;
+  $("imgRight").onload = $("imgRight").onerror = ready;
+  $("imgLeft").src = pair.left.url;
+  $("imgRight").src = pair.right.url;
+  $("count").textContent = `${pair.judged_by_you} done`;
+  $("taskErr").textContent = "";
+  show("task");
+
+  // Pull the following pair while this one is being looked at.
+  fetchPair().then(warm).then((p) => { prefetched = p; }).catch(() => {});
+}
+
+async function judge(choice) {
+  if (locked || !current) return;
+  locked = true;
+  const latency = Math.max(0, Math.round(performance.now() - shownAt));
+  const pairId = current.pair_id;
+  try {
+    const res = await fetch("/api/annotate/judge", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        annotator_id: annotator, pair_id: pairId, choice, latency_ms: latency,
+      }),
+    });
+    if (!res.ok) throw new Error(res.statusText);
+    current.judged_by_you += 1;
+    await advance();
+  } catch (err) {
+    $("taskErr").textContent = `Could not save that one: ${err.message || err}`;
+    locked = false;
+  }
+}
+
+$("sideLeft").addEventListener("click", () => judge("left"));
+$("sideRight").addEventListener("click", () => judge("right"));
+$("tie").addEventListener("click", () => judge("tie"));
+
+document.addEventListener("keydown", (event) => {
+  if ($("task").hidden) return;
+  const map = { ArrowLeft: "left", "1": "left", ArrowRight: "right", "2": "right", ArrowDown: "tie" };
+  const choice = map[event.key];
+  if (!choice) return;
+  event.preventDefault();
+  $(choice === "left" ? "sideLeft" : "sideRight")?.classList.add("armed");
+  setTimeout(() => document.querySelectorAll(".side").forEach((s) => s.classList.remove("armed")), 120);
+  judge(choice);
+});
+
+// --- Boot ------------------------------------------------------------------
+
+(async () => {
+  if (!annotator) { show("enrol"); return; }
+  try { await advance(); } catch { show("enrol"); }
+})();
+</script>
+</body>
+</html>

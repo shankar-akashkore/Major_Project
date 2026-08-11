@@ -43,6 +43,16 @@ Open <http://localhost:8077> and press **Run demo job**. It runs the full
 eight-stage pipeline against synthetic references, costs nothing, and needs no
 API keys.
 
+To collect preference labels, build a corpus and share the comparison tool:
+
+```bash
+.venv/bin/python scripts/generate_corpus.py --sets 20 && .venv/bin/python scripts/build_corpus.py --commit
+```
+
+Then open <http://localhost:8077/api/annotate/ui>, or share that URL on your
+network. `scripts/annotation_report.py` says whether the labels are usable —
+see [docs/annotation-protocol.md](docs/annotation-protocol.md).
+
 ```bash
 .venv/bin/python -m pytest tests/ -q
 ```
@@ -185,16 +195,19 @@ that are real but whose thresholds are not yet calibrated against real uploads.
 
 ```
 apps/web/            Next.js product UI — not built yet (week 13)
-services/api/        FastAPI: jobs, SSE progress, budget, media
+services/api/        FastAPI: jobs, SSE progress, budget, media, annotation
   adapi/dev.html     single-file inspection harness (not the product UI)
+  adapi/annotate.html  the 2AFC comparison tool, shareable, no build step
 services/worker/     the pipeline: sampler, briefs, gate, scoring, orchestrator
 packages/schema/     the job contract — single source of truth, no heavy deps
 packages/providers/  provider ABCs, MockProvider, CostGovernor, ledger, storage
-packages/ml/         numpy features now; torch extractors + trained head later
-scripts/             calibrate_gate.py
+packages/ml/         numpy features, pair design, Bradley-Terry + metrics;
+                     torch extractors and the trained head land later
+scripts/             calibrate_gate.py, calibrate_intake.py, smoke_live.py,
+                     generate_corpus.py, build_corpus.py, annotation_report.py
 notebooks/           Colab: Stage A pretrain, Stage B calibration, ablations
-fixtures/            uploads, generations, golden demo set
-tests/               32 tests
+fixtures/            uploads, generations, annotation corpus, golden demo set
+tests/               127 tests
 ```
 
 `packages/schema` imports no torch, no provider SDK and no DB driver, so it stays
@@ -291,9 +304,20 @@ Verified on this machine, and they shaped the architecture:
       cannot prove the documentation is right. `scripts/smoke_live.py --image
       --confirm-spend` then `--video --confirm-spend`, and play the clip to check
       it really is the length the API claims.
-- [ ] **Start collecting pairwise annotations by week 8.** This is the critical
-      path — if it slips, the trained predictor has no labels and the research
-      half of the project collapses.
+- [x] **The annotation tool and the label pipeline** (week 7–8): pair design
+      with a guaranteed-connected comparison graph, a shareable 2AFC tool,
+      Bradley-Terry fitting, and the quality-control machinery. See
+      [docs/annotation-protocol.md](docs/annotation-protocol.md).
+- [ ] **Start collecting real pairwise annotations by week 8.** The tool is
+      built and verified against a simulated session; no human has used it. This
+      is the critical path — if it slips, the trained predictor has no labels and
+      the research half of the project collapses. Recruit early: the design costs
+      ~18 minutes each across six annotators.
+- [ ] **Re-derive the annotator-quality thresholds from the first real session.**
+      `MIN_REPEAT_CONSISTENCY`, `MIN_PLAUSIBLE_LATENCY_MS` and `MAX_SIDE_BIAS_Z`
+      are 2AFC-literature starting points, not measurements of this task. Section
+      3 of `annotation_report.py` prints what to replace them with. Do it before
+      excluding anyone's work.
 - [x] Intake preprocessing: product cutout, palette extraction, face detection,
       reference validation (week 3–4). Cutout via `rembg` when installed, with a
       flood-fill fallback that is only trusted when the backdrop measures flat

@@ -229,24 +229,34 @@ def _render_frame(
             max(0, min(255, b + j)),
         )
 
-    draw.text((round(w * 0.04), round(h * 0.03)), label, fill=(255, 255, 255))
+    if label:
+        draw.text((round(w * 0.04), round(h * 0.03)), label, fill=(255, 255, 255))
     return img
 
 
 class MockImageProvider(ImageProvider):
-    """Renders a deterministic placeholder frame. Never touches the network."""
+    """Renders a deterministic placeholder frame. Never touches the network.
+
+    ``annotate_frames`` burns the design point and the seed into the corner, which
+    is what makes the dev harness readable — and must be turned **off** for images
+    that a human will be asked to compare. An annotator who can read
+    "close up product / rim backlit" off the frame is not judging the image, and
+    real generations carry no such caption, so labels collected against captioned
+    mock frames would not transfer.
+    """
 
     name = "mock"
     model = "mock"
 
-    def __init__(self, storage: Storage):
+    def __init__(self, storage: Storage, *, annotate_frames: bool = True):
         self.storage = storage
+        self.annotate_frames = annotate_frames
 
     async def generate(self, request: ImageGenRequest) -> ImageGenResult:
         started = time.perf_counter()
         dp = request.brief.design_point
         size = request.aspect_ratio.pixel_size(MOCK_LONG_EDGE)
-        label = f"{request.brief.slot_label}\nseed {request.seed}"
+        label = f"{request.brief.slot_label}\nseed {request.seed}" if self.annotate_frames else ""
         frame = _render_frame(
             size=size,
             palette=request.palette,

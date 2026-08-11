@@ -6,6 +6,24 @@ Nothing here imports torch, a provider SDK, or a database driver, so it stays
 importable on an 8 GB laptop and inside a Colab notebook alike.
 """
 
+from .annotation import (
+    MAX_CATCH_GUESS_PROBABILITY,
+    MAX_SIDE_BIAS_Z,
+    MIN_CATCH_ACCURACY,
+    MIN_CATCH_TRIALS,
+    MIN_PLAUSIBLE_LATENCY_MS,
+    MIN_REPEAT_CONSISTENCY,
+    MIN_TRIALS_TO_JUDGE_AN_ANNOTATOR,
+    AnnotatorProfile,
+    AnnotatorQuality,
+    Choice,
+    ComparisonPair,
+    CorpusItem,
+    CorpusStats,
+    ItemKind,
+    Judgement,
+    PairKind,
+)
 from .brief import BriefSet, DesignPoint, ShotBrief
 from .candidates import (
     GateCheck,
@@ -82,6 +100,23 @@ __all__ = [
     "RankedCandidate",
     "ScoreBreakdown",
     "VideoCandidate",
+    # annotation
+    "AnnotatorProfile",
+    "AnnotatorQuality",
+    "Choice",
+    "ComparisonPair",
+    "CorpusItem",
+    "CorpusStats",
+    "ItemKind",
+    "Judgement",
+    "PairKind",
+    "MAX_CATCH_GUESS_PROBABILITY",
+    "MAX_SIDE_BIAS_Z",
+    "MIN_CATCH_TRIALS",
+    "MIN_CATCH_ACCURACY",
+    "MIN_PLAUSIBLE_LATENCY_MS",
+    "MIN_REPEAT_CONSISTENCY",
+    "MIN_TRIALS_TO_JUDGE_AN_ANNOTATOR",
     # intake
     "CutoutReport",
     "FaceReport",

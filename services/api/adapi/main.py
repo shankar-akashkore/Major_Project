@@ -34,6 +34,8 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, Response, StreamingResponse
 
+from . import annotate
+from .annotation_store import AnnotationStore
 from .store import EventBus, JobStore
 
 MEDIA_MIME = {
@@ -58,7 +60,11 @@ settings = P.get_settings()
 storage = P.get_storage(settings.storage_backend, settings.storage_root)
 ledger = P.SqlLedger.from_url(settings.database_url)
 store = JobStore.from_url(settings.database_url)
+annotations = AnnotationStore.from_url(settings.database_url)
 bus = EventBus()
+
+annotate.bind(annotations)
+app.include_router(annotate.router)
 
 #: Keeps background task references alive so they are not garbage collected
 #: mid-run, which asyncio does not otherwise prevent.
@@ -69,6 +75,7 @@ _running: dict[str, asyncio.Task] = {}
 async def _startup() -> None:
     await ledger.create_all()
     await store.create_all()
+    await annotations.create_all()
     print(settings.describe())
 
 
@@ -362,4 +369,5 @@ async def dev_harness() -> str:
 async def lifespan_for_tests():  # pragma: no cover - test helper
     await ledger.create_all()
     await store.create_all()
+    await annotations.create_all()
     yield
