@@ -35,7 +35,7 @@ async def test_affordable_call_is_settled():
     result = await governor.guarded_call(
         job_id="j1",
         provider="kling",
-        model="kling-3",
+        model="kling-2.5-turbo-pro",
         operation="video",
         estimated_usd=0.50,
         quantity=5.0,
@@ -52,7 +52,7 @@ async def test_per_job_cap_is_enforced():
     await governor.guarded_call(
         job_id="j1",
         provider="k",
-        model="kling-3",
+        model="kling-2.5-turbo-pro",
         operation="video",
         estimated_usd=0.50,
         quantity=5.0,
@@ -62,7 +62,7 @@ async def test_per_job_cap_is_enforced():
         await governor.guarded_call(
             job_id="j1",
             provider="k",
-            model="kling-3",
+            model="kling-2.5-turbo-pro",
             operation="video",
             estimated_usd=0.50,
             quantity=5.0,
@@ -77,7 +77,7 @@ async def test_total_budget_cap_is_enforced_across_jobs():
     await governor.guarded_call(
         job_id="j1",
         provider="k",
-        model="kling-3",
+        model="kling-2.5-turbo-pro",
         operation="video",
         estimated_usd=0.55,
         quantity=5.0,
@@ -87,7 +87,7 @@ async def test_total_budget_cap_is_enforced_across_jobs():
         await governor.guarded_call(
             job_id="j2",
             provider="k",
-            model="kling-3",
+            model="kling-2.5-turbo-pro",
             operation="video",
             estimated_usd=0.50,
             quantity=5.0,
@@ -108,7 +108,7 @@ async def test_failed_call_is_voided_not_charged():
         await governor.guarded_call(
             job_id="j1",
             provider="k",
-            model="kling-3",
+            model="kling-2.5-turbo-pro",
             operation="video",
             estimated_usd=0.40,
             quantity=4.0,
@@ -131,7 +131,7 @@ async def test_reservations_count_as_spent_so_concurrency_cannot_overrun():
             await governor.guarded_call(
                 job_id="j1",
                 provider="k",
-                model="kling-3",
+                model="kling-2.5-turbo-pro",
                 operation="video",
                 estimated_usd=0.10,
                 quantity=1.0,
@@ -169,7 +169,7 @@ async def test_mock_mode_rejects_a_nonzero_estimate():
         await governor.guarded_call(
             job_id="j",
             provider="kling",
-            model="kling-3",
+            model="kling-2.5-turbo-pro",
             operation="video",
             estimated_usd=0.50,
             quantity=5.0,
@@ -225,7 +225,7 @@ async def test_sql_ledger_is_durable(tmp_path):
     await governor.guarded_call(
         job_id="j1",
         provider="k",
-        model="kling-3",
+        model="kling-2.5-turbo-pro",
         operation="video",
         estimated_usd=0.50,
         quantity=5.0,
@@ -239,13 +239,27 @@ async def test_sql_ledger_is_durable(tmp_path):
     await reopened.engine.dispose()
 
 
-async def test_estimates_match_the_plans_budget_arithmetic():
-    """Guards the number the whole project plan is built on: a 3-candidate,
-    9-second job on the cheap tier is about $2.82, and Veo is out of reach."""
-    cheap = P.estimate_job_cost("gemini-flash-image", "kling-3", "claude-haiku", 3, 9.0)
-    assert 2.70 <= cheap <= 2.95
+async def test_estimates_match_the_verified_provider_prices():
+    """Guards the number the whole project's budget rests on.
 
-    premium = P.estimate_job_cost("gemini-flash-image", "veo-3.1", "claude-haiku", 3, 9.0)
+    These are the week-5 spike's verified prices, not the plan's estimates. The
+    default job got *cheaper* than planned ($2.22 against $2.82) because Kling
+    2.5 Turbo Pro reaches 10 s natively at $0.07/s — but note the 9 s request is
+    billed at 10 s, since the API's duration enum has no 9.
+    """
+    default = P.estimate_job_cost(
+        "seedream-4.5-edit", "kling-2.5-turbo-pro", "claude-haiku", 3, 9.0
+    )
+    # 3 images @ $0.04 + 3 videos @ 10 s x $0.07 + one LLM call @ $0.004
+    assert default == pytest.approx(0.12 + 2.10 + 0.004)
+    assert 2.20 <= default <= 2.25
+
+    # Paying 1.6x per second buys the freedom to request 9 s exactly.
+    exact = P.estimate_job_cost("seedream-4.5-edit", "kling-3-pro", "claude-haiku", 3, 9.0)
+    assert exact == pytest.approx(0.12 + 3 * 9.0 * 0.112 + 0.004)
+    assert exact > default
+
+    premium = P.estimate_job_cost("seedream-4.5-edit", "sora-2-pro", "claude-haiku", 3, 9.0)
     assert premium > 10.0
 
     free = P.estimate_job_cost("mock", "mock", "mock", 3, 9.0)
@@ -255,15 +269,54 @@ async def test_estimates_match_the_plans_budget_arithmetic():
     assert research == 0.0
 
 
+async def test_a_discrete_duration_enum_is_billed_at_what_it_delivers():
+    """Kling offers {5, 10} and nothing between, so 9 s costs what 10 s costs.
+
+    Estimating on the requested duration would under-reserve by 10%, and the
+    governor reserves against this number — under-estimating is how a cap gets
+    quietly exceeded.
+    """
+    from adproviders.pricing import VIDEO_PRICES
+
+    kling = VIDEO_PRICES["kling-2.5-turbo-pro"]
+    assert kling.supported_durations == (5.0, 10.0)
+    assert kling.snap_duration(9.0) == 10.0
+    assert kling.snap_duration(5.0) == 5.0
+    assert kling.snap_duration(4.0) == 5.0, "must round up, never below the committed window"
+
+    assert P.estimate_video_cost("kling-2.5-turbo-pro", 9.0) == pytest.approx(10.0 * 0.07)
+    assert P.estimate_video_cost("kling-2.5-turbo-pro", 8.0) == pytest.approx(10.0 * 0.07)
+    assert P.estimate_video_cost("kling-2.5-turbo-pro", 5.0) == pytest.approx(5.0 * 0.07)
+
+    # A continuous-duration model bills exactly what was asked for.
+    assert VIDEO_PRICES["kling-3-pro"].supported_durations is None
+    assert P.estimate_video_cost("kling-3-pro", 9.0) == pytest.approx(9.0 * 0.112)
+
+
 async def test_chained_provider_bills_whole_segments():
     """A 5 s-capped model reaching 9 s pays for two clips, not 1.8."""
     from adproviders.pricing import VIDEO_PRICES
 
     assert not VIDEO_PRICES["wan-2.1-i2v"].supports_project_window
-    assert VIDEO_PRICES["kling-3"].supports_project_window
+    assert VIDEO_PRICES["kling-2.5-turbo-pro"].supports_project_window
 
     # Priced at $0 on the research tier, but the segment arithmetic still applies.
-    assert P.estimate_video_cost("runway-gen-4.5", 9.0) == pytest.approx(9.0 * 0.20)
+    assert P.estimate_video_cost("wan-2.1-i2v", 9.0) == pytest.approx(0.0)
+    assert P.estimate_video_cost("veo-3.1-fast", 9.0) == pytest.approx(2 * 8.0 * 0.10)
+
+
+async def test_the_video_stage_reports_that_it_cannot_be_seeded():
+    """The image stage is reproducible and the video stage is not.
+
+    Kling's image-to-video endpoint has no seed parameter. An ablation that
+    assumed a controlled comparison here would be reporting run-to-run noise as
+    an effect, so the limitation is carried in the data rather than in a footnote.
+    """
+    from adproviders.pricing import IMAGE_PRICES, VIDEO_PRICES
+
+    assert VIDEO_PRICES["kling-2.5-turbo-pro"].honours_seed is False
+    assert VIDEO_PRICES["mock"].honours_seed is True
+    assert IMAGE_PRICES["seedream-4.5-edit"].max_reference_images == 10
 
 
 async def test_unimplemented_live_provider_fails_loudly():

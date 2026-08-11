@@ -377,7 +377,17 @@ class Pipeline:
         total = len(promote)
 
         native = self.videos.supports_duration(request.duration_seconds)
-        note = "native" if native else "chained (provider caps below the requested duration)"
+        delivered = self.videos.deliverable_duration(request.duration_seconds)
+        if not native:
+            note = "chained (provider caps below the requested duration)"
+        elif delivered != request.duration_seconds:
+            # Kling offers {5, 10} and nothing between, so a 9 s ask becomes 10 s.
+            note = (
+                f"native, delivered at {delivered:.0f}s — "
+                f"{self.videos.model} offers fixed durations only"
+            )
+        else:
+            note = "native"
         await self._emit(
             record,
             Stage.VIDEO_GEN,
@@ -403,7 +413,11 @@ class Pipeline:
                 {
                     "motion": source.brief.motion_prompt,
                     "start": source.asset.sha256 or source.asset.key,
-                    "duration": request.duration_seconds,
+                    # The delivered duration, not the requested one: on a provider
+                    # with a {5, 10} enum an 8 s and a 9 s request produce the same
+                    # 10 s clip, so they should share a cache entry rather than
+                    # paying twice for identical output.
+                    "duration": delivered,
                     "aspect": request.aspect_ratio.value,
                     "seed": seed,
                 },
@@ -415,10 +429,12 @@ class Pipeline:
                     source_image_index=source.index,
                     brief=source.brief,
                     asset=cached,
-                    duration_seconds=request.duration_seconds,
+                    duration_seconds=delivered,
+                    requested_duration_seconds=request.duration_seconds,
                     tier=self.videos.tier,
                     provider=self.videos.name,
                     seed=seed,
+                    seed_honoured=self.videos.honours_seed,
                     cost_usd=0.0,
                 )
             else:
@@ -440,10 +456,12 @@ class Pipeline:
                     brief=source.brief,
                     asset=gen.asset,
                     duration_seconds=gen.duration_seconds,
+                    requested_duration_seconds=request.duration_seconds,
                     fps=gen.fps,
                     tier=gen.tier,
                     provider=gen.model,
                     seed=gen.seed,
+                    seed_honoured=gen.seed_honoured,
                     cost_usd=gen.cost_usd,
                     latency_ms=gen.latency_ms,
                     was_chained=gen.was_chained,

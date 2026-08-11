@@ -89,6 +89,10 @@ class VideoGenResult:
     fps: int = 24
     was_chained: bool = False
     seam_consistency: float | None = None
+    #: False when the provider has no seed parameter, so the clip is not
+    #: reproducible. Recorded rather than assumed: the evaluation cannot claim
+    #: a controlled comparison on a stage it could not hold fixed.
+    seed_honoured: bool = True
     cache_hit: bool = False
     raw: dict | None = None
 
@@ -128,6 +132,10 @@ class VideoProvider(ABC):
     def native_max_seconds(self) -> float:
         return VIDEO_PRICES[self.model].native_max_seconds
 
+    @property
+    def honours_seed(self) -> bool:
+        return VIDEO_PRICES[self.model].honours_seed
+
     def supports_duration(self, seconds: float) -> bool:
         """Whether this model reaches ``seconds`` without a concatenation seam.
 
@@ -136,6 +144,17 @@ class VideoProvider(ABC):
         score so the quality cost is visible rather than hidden.
         """
         return seconds <= self.native_max_seconds
+
+    def deliverable_duration(self, seconds: float) -> float:
+        """What this provider will actually return for a request of ``seconds``.
+
+        Providers with a discrete duration enum round up — Kling's image-to-video
+        endpoint offers {5, 10} and nothing between, so a 9 s request comes back
+        as a 10 s clip. The pipeline records the delivered figure rather than the
+        requested one, because the delivered one is what the file contains and
+        what the invoice reflects.
+        """
+        return VIDEO_PRICES[self.model].snap_duration(seconds)
 
     def estimate_cost(self, seconds: float, count: int = 1) -> float:
         return estimate_video_cost(self.model, seconds, count)

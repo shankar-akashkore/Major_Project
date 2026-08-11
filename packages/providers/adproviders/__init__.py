@@ -15,6 +15,7 @@ from .base import (
     VideoGenResult,
     VideoProvider,
 )
+from .fal import FalClient, FalImageProvider, FalVideoProvider
 from .governor import BudgetExceeded, CostGovernor, RetryBudgetExceeded
 from .ledger import InMemoryLedger, LedgerStore, SqlLedger
 from .mock import (
@@ -71,6 +72,9 @@ __all__ = [
     "mock_reference_asset",
     "mock_portrait_asset",
     "mock_product_asset",
+    "FalClient",
+    "FalImageProvider",
+    "FalVideoProvider",
     # wiring
     "get_image_provider",
     "get_video_provider",

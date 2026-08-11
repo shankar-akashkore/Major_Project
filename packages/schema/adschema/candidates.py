@@ -179,6 +179,19 @@ class VideoCandidate(BaseModel):
         le=1.0,
         description="Temporal consistency across the concatenation seam; only when chained.",
     )
+    requested_duration_seconds: float | None = Field(
+        default=None,
+        ge=0.0,
+        description="What was asked for, when the provider could not deliver exactly that. "
+        "Kling's image-to-video endpoint takes duration as the enum {5, 10}, so a 9 s "
+        "request comes back — and is billed — as 10 s.",
+    )
+    seed_honoured: bool = Field(
+        default=True,
+        description="False when the provider has no seed parameter. The image stage is "
+        "reproducible and the video stage may not be, and an ablation that assumes a "
+        "controlled comparison it never had would be reporting noise as an effect.",
+    )
 
     score: ScoreBreakdown | None = None
     thumbnail: AssetRef | None = None

@@ -1,0 +1,337 @@
+"""fal.ai adapters — the live image and video providers.
+
+Both live models sit behind one platform on purpose.  fal hosts Seedream (the
+multi-reference image model) and Kling (the image-to-video model), so the project
+needs one account, one API key, one auth scheme and one billing statement instead
+of two of each.  For a solo build with a $35 ceiling, that is worth more than
+squeezing the last cent out of per-model pricing.
+
+**Nothing here has been run against the live API.**  Every test drives a stub
+transport, and no request has been sent, so what is verified is that the adapters
+build the documented request, parse the documented response, and map failures onto
+the pipeline's error types.  What is *not* verified is that the documentation is
+accurate.  Budget one cheap call per adapter to confirm that before any bulk run —
+see ``scripts/smoke_live.py``.
+
+Two provider facts shaped this module more than anything else:
+
+* **Kling takes ``duration`` as the enum {"5", "10"}.**  There is no 9.  A request
+  inside the project's 8-10 s window has to snap up to a real option, and the cost
+  has to be estimated on what will be billed.  See ``VideoPrice.snap_duration``.
+* **Kling's image-to-video endpoint has no seed.**  The image stage is
+  reproducible and the video stage is not, which the evaluation has to state
+  rather than assume away.  ``VideoGenResult.seed_honoured`` carries it.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import base64
+import time
+from typing import Any
+
+import httpx
+from adschema import AspectRatio, AssetRef, Tier
+
+from .base import (
+    ImageGenRequest,
+    ImageGenResult,
+    ImageProvider,
+    ProviderError,
+    ProviderUnavailable,
+    VideoGenRequest,
+    VideoGenResult,
+    VideoProvider,
+)
+from .pricing import IMAGE_PRICES, VIDEO_PRICES
+from .storage import Storage
+
+FAL_RUN_BASE = "https://fal.run"
+FAL_QUEUE_BASE = "https://queue.fal.run"
+
+#: Endpoint ids, kept beside the price-table keys they correspond to.
+SEEDREAM_EDIT_ENDPOINT = "fal-ai/bytedance/seedream/v4.5/edit"
+KLING_I2V_ENDPOINT = "fal-ai/kling-video/v2.5-turbo/pro/image-to-video"
+
+#: A single generation is slow — tens of seconds for an image, minutes for video.
+IMAGE_TIMEOUT_S = 180.0
+VIDEO_TIMEOUT_S = 900.0
+#: How often to ask the queue whether a job is done.
+POLL_INTERVAL_S = 3.0
+#: Per-HTTP-request timeout. Separate from the overall job timeout above: a slow
+#: generation is normal, a slow *response to a status check* is not.
+HTTP_TIMEOUT_S = 60.0
+
+
+class FalClient:
+    """Thin async client for fal's queue API.
+
+    Deliberately small. The official `fal-client` package would work, but this
+    project's whole cost discipline rests on knowing exactly what leaves the
+    machine and when, and an SDK that retries internally would sit between the
+    cost governor and the thing it is governing.
+    """
+
+    def __init__(
+        self,
+        api_key: str | None,
+        *,
+        transport: httpx.AsyncBaseTransport | None = None,
+        poll_interval_s: float = POLL_INTERVAL_S,
+    ):
+        self._api_key = (api_key or "").strip()
+        self._transport = transport
+        self.poll_interval_s = poll_interval_s
+
+    @property
+    def configured(self) -> bool:
+        return bool(self._api_key)
+
+    def _require_key(self, model: str) -> None:
+        if not self.configured:
+            raise ProviderUnavailable(
+                f"{model} needs a fal API key. Set AD_FAL_API_KEY in .env, or keep "
+                "AD_PROVIDER_MODE=mock to run for free."
+            )
+
+    def _headers(self) -> dict[str, str]:
+        return {
+            "Authorization": f"Key {self._api_key}",
+            "Content-Type": "application/json",
+        }
+
+    async def run(self, endpoint: str, payload: dict[str, Any], timeout_s: float) -> dict[str, Any]:
+        """Submit a job and wait for its result.
+
+        Uses the queue endpoints rather than the synchronous one because video
+        generation routinely outlives any sensible HTTP timeout.
+        """
+        self._require_key(endpoint)
+        deadline = time.monotonic() + timeout_s
+
+        async with httpx.AsyncClient(
+            transport=self._transport, timeout=HTTP_TIMEOUT_S, headers=self._headers()
+        ) as client:
+            submitted = await self._post(client, f"{FAL_QUEUE_BASE}/{endpoint}", payload)
+            request_id = submitted.get("request_id")
+            if not request_id:
+                # Some deployments answer the submit call with the finished
+                # payload. Take it rather than failing on a missing queue id.
+                if "images" in submitted or "video" in submitted:
+                    return submitted
+                raise ProviderError(f"fal did not return a request_id for {endpoint}: {submitted}")
+
+            status_url = submitted.get("status_url") or (
+                f"{FAL_QUEUE_BASE}/{endpoint}/requests/{request_id}/status"
+            )
+            response_url = submitted.get("response_url") or (
+                f"{FAL_QUEUE_BASE}/{endpoint}/requests/{request_id}"
+            )
+
+            while True:
+                status = await self._get(client, status_url)
+                state = str(status.get("status", "")).upper()
+                if state == "COMPLETED":
+                    return await self._get(client, response_url)
+                if state in {"FAILED", "ERROR", "CANCELLED"}:
+                    raise ProviderError(
+                        f"fal job {request_id} for {endpoint} ended as {state}: "
+                        f"{status.get('error') or status}"
+                    )
+                if time.monotonic() >= deadline:
+                    raise ProviderError(
+                        f"fal job {request_id} for {endpoint} did not finish within "
+                        f"{timeout_s:.0f}s (last status {state or 'unknown'})"
+                    )
+                await asyncio.sleep(self.poll_interval_s)
+
+    async def _post(
+        self, client: httpx.AsyncClient, url: str, payload: dict[str, Any]
+    ) -> dict[str, Any]:
+        try:
+            response = await client.post(url, json=payload)
+        except httpx.HTTPError as exc:
+            raise ProviderError(f"fal request to {url} failed: {exc}") from exc
+        return self._decode(response, url)
+
+    async def _get(self, client: httpx.AsyncClient, url: str) -> dict[str, Any]:
+        try:
+            response = await client.get(url)
+        except httpx.HTTPError as exc:
+            raise ProviderError(f"fal request to {url} failed: {exc}") from exc
+        return self._decode(response, url)
+
+    @staticmethod
+    def _decode(response: httpx.Response, url: str) -> dict[str, Any]:
+        # 401/403 are configuration faults, and retrying a bad key just burns
+        # time; 402 means the account is out of credit, which retrying makes
+        # worse. Everything else is retryable once, which the governor caps.
+        if response.status_code in {401, 403}:
+            raise ProviderUnavailable(f"fal rejected the API key ({response.status_code}) at {url}")
+        if response.status_code == 402:
+            raise ProviderUnavailable(f"fal reports insufficient credit (402) at {url}")
+        if response.status_code >= 400:
+            raise ProviderError(f"fal returned {response.status_code} at {url}: {response.text}")
+        try:
+            return response.json()
+        except ValueError as exc:
+            raise ProviderError(f"fal returned non-JSON at {url}: {response.text[:200]}") from exc
+
+    async def fetch_bytes(self, url: str) -> bytes:
+        """Download a generated asset from the URL fal hands back."""
+        async with httpx.AsyncClient(transport=self._transport, timeout=HTTP_TIMEOUT_S) as client:
+            try:
+                response = await client.get(url)
+                response.raise_for_status()
+            except httpx.HTTPError as exc:
+                raise ProviderError(f"could not download the generated asset: {exc}") from exc
+            return response.content
+
+
+#: MIME types by file extension, for encoding a local asset as a data URI.
+_MIME_BY_SUFFIX = {
+    "png": "image/png",
+    "jpg": "image/jpeg",
+    "jpeg": "image/jpeg",
+    "webp": "image/webp",
+}
+
+
+def as_data_uri(storage: Storage, asset: AssetRef) -> str:
+    """Encode a stored asset as a ``data:`` URI.
+
+    fal takes inputs as URLs, and this project's media sits in local storage
+    served on ``localhost`` — which fal obviously cannot reach. Inlining the bytes
+    avoids needing a public bucket before the first real generation. It costs
+    roughly a third in base64 overhead, so this is the thing to replace with
+    signed Supabase URLs once storage moves off the laptop.
+    """
+    mime = asset.mime_type or _MIME_BY_SUFFIX.get(asset.key.rsplit(".", 1)[-1].lower(), "image/png")
+    payload = base64.b64encode(storage.get_bytes(asset.key)).decode("ascii")
+    return f"data:{mime};base64,{payload}"
+
+
+def _image_size(aspect: AspectRatio, long_edge: int = 1536) -> dict[str, int]:
+    """Explicit pixel dimensions for the target aspect ratio.
+
+    Passed as width/height rather than one of fal's named presets, because the
+    presets do not include 9:16 and the platform geometry is not negotiable —
+    a Reels ad that comes back 4:3 is a wasted generation.
+    """
+    width, height = aspect.pixel_size(long_edge)
+    return {"width": width, "height": height}
+
+
+class FalImageProvider(ImageProvider):
+    """Multi-reference composition via Seedream 4.5 edit."""
+
+    name = "fal"
+    model = "seedream-4.5-edit"
+
+    def __init__(
+        self,
+        storage: Storage,
+        api_key: str | None = None,
+        client: FalClient | None = None,
+    ):
+        self.storage = storage
+        self.client = client or FalClient(api_key)
+
+    def _payload(self, request: ImageGenRequest) -> dict[str, Any]:
+        references = request.references[: self.max_reference_images]
+        if len(request.references) > self.max_reference_images:
+            raise ProviderError(
+                f"{self.model} accepts {self.max_reference_images} reference images, "
+                f"got {len(request.references)}"
+            )
+        return {
+            "prompt": request.brief.image_prompt,
+            "image_urls": [as_data_uri(self.storage, ref) for ref in references],
+            "image_size": _image_size(request.aspect_ratio),
+            "num_images": 1,
+            "seed": request.seed,
+            "enable_safety_checker": True,
+        }
+
+    async def generate(self, request: ImageGenRequest) -> ImageGenResult:
+        started = time.monotonic()
+        payload = self._payload(request)
+        raw = await self.client.run(SEEDREAM_EDIT_ENDPOINT, payload, IMAGE_TIMEOUT_S)
+
+        images = raw.get("images") or []
+        if not images or not images[0].get("url"):
+            raise ProviderError(f"{self.model} returned no image: {raw}")
+
+        data = await self.client.fetch_bytes(images[0]["url"])
+        asset = self.storage.put_bytes(
+            request.output_key, data, images[0].get("content_type", "image/png")
+        )
+        asset.width = images[0].get("width")
+        asset.height = images[0].get("height")
+
+        return ImageGenResult(
+            asset=asset,
+            model=self.model,
+            tier=Tier(IMAGE_PRICES[self.model].tier),
+            cost_usd=self.estimate_cost(1),
+            latency_ms=round((time.monotonic() - started) * 1000),
+            seed=raw.get("seed", request.seed),
+            raw=raw,
+        )
+
+
+class FalVideoProvider(VideoProvider):
+    """Image-to-video via Kling 2.5 Turbo Pro."""
+
+    name = "fal"
+    model = "kling-2.5-turbo-pro"
+
+    def __init__(
+        self,
+        storage: Storage,
+        api_key: str | None = None,
+        client: FalClient | None = None,
+    ):
+        self.storage = storage
+        self.client = client or FalClient(api_key)
+
+    def _payload(self, request: VideoGenRequest) -> dict[str, Any]:
+        duration = self.deliverable_duration(request.duration_seconds)
+        return {
+            "prompt": request.brief.motion_prompt,
+            "image_url": as_data_uri(self.storage, request.start_image),
+            # The API takes duration as a *string* enum, not a number.
+            "duration": str(int(duration)),
+            "negative_prompt": request.brief.negative_prompt or "blur, distort, and low quality",
+            "cfg_scale": 0.5,
+        }
+
+    async def generate(self, request: VideoGenRequest) -> VideoGenResult:
+        started = time.monotonic()
+        delivered = self.deliverable_duration(request.duration_seconds)
+        payload = self._payload(request)
+        raw = await self.client.run(KLING_I2V_ENDPOINT, payload, VIDEO_TIMEOUT_S)
+
+        video = raw.get("video") or {}
+        if not video.get("url"):
+            raise ProviderError(f"{self.model} returned no video: {raw}")
+
+        data = await self.client.fetch_bytes(video["url"])
+        asset = self.storage.put_bytes(
+            request.output_key, data, video.get("content_type", "video/mp4")
+        )
+
+        return VideoGenResult(
+            asset=asset,
+            model=self.model,
+            tier=Tier(VIDEO_PRICES[self.model].tier),
+            cost_usd=self.estimate_cost(request.duration_seconds),
+            latency_ms=round((time.monotonic() - started) * 1000),
+            seed=request.seed,
+            # Reported as delivered, not as requested — a 9 s ask comes back 10 s.
+            duration_seconds=delivered,
+            fps=request.fps,
+            was_chained=False,
+            seed_honoured=self.honours_seed,
+            raw=raw,
+        )

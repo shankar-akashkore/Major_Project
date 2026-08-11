@@ -55,14 +55,19 @@ The entire project budget is **$35**. A 3-candidate, 9-second job on the cheapes
 premium tier costs about **$2.82**, so roughly twelve jobs exist in the whole
 budget. Everything below follows from that.
 
+Verified against vendor pricing in the week-5 spike — a default job is **$2.22**,
+down from the plan's $2.82, because Kling 2.5 Turbo Pro reaches 10 s natively at
+$0.07/s. Full workings in [docs/provider-spike.md](docs/provider-spike.md).
+
 | Line | Allocation | Buys |
 |---|---|---|
 | Development (mock mode) | $0 | Unlimited iteration |
-| Training image corpus | $9 | ~300 images → the annotation corpus |
+| Contract smoke tests | $0.39 | One real call per live adapter |
+| Training image corpus | $12 | 300 images @ $0.04 → the annotation corpus |
 | Research-tier video | $0 | ~60 videos, LTX-Video/Wan on Colab free |
-| Premium jobs | $20 | 7 full 3×3 jobs → golden demos |
-| LLM brief compilation | $2 | ~200 briefs |
-| Reserve | $4 | Reruns |
+| Premium jobs | $17.76 | 8 full 3×3 jobs @ $2.22 → golden demos |
+| LLM brief compilation | $1 | ~250 briefs |
+| Reserve | $3.85 | Reruns |
 
 **Two generation tiers** are what make this work. Research volume comes free from
 open weights on a Colab GPU; demo quality comes from the paid API. The comparison
@@ -123,6 +128,15 @@ combinations.
 all* (hard reject). The predictor answers *how well will it perform* (continuous
 score), and only ever runs on candidates that already passed. Expressing an
 unusable candidate as a low score would let it rank first on a bad day.
+
+**Provider limits are modelled, not assumed away.** Kling's image-to-video
+endpoint takes `duration` as the enum `{5, 10}` — there is no 9, which is the
+project's default. So a request snaps *up* to the next real option, and the cost
+is estimated on what will be delivered: rounding down would break the stated 8 s
+floor to save two cents, and under-estimating is exactly how a budget cap gets
+quietly exceeded. That endpoint also has no seed, so the image stage is
+reproducible and the video stage is not; `seed_honoured` carries that into the
+data rather than leaving it as a footnote the evaluation might forget.
 
 **The brand palette is read from inside the product, not off the photograph.** The
 backdrop covers most of a product shot's pixels, so quantising the whole frame
@@ -267,9 +281,16 @@ Verified on this machine, and they shaped the architecture:
 
 ## Open items
 
-- [ ] **Verify a provider does native ≥10 s image-to-video** before committing
-      budget (week 5). Most cap at 5 s; the fallback is 5+5 chaining, whose seam
-      drift is measured and reported rather than hidden.
+- [x] **Verify a provider does native ≥10 s image-to-video** before committing
+      budget (week 5). **Settled: yes, natively — chaining is not required.**
+      Kling 2.5 Turbo Pro does 10 s at $0.07/s. See
+      [docs/provider-spike.md](docs/provider-spike.md).
+- [ ] **Run the two contract smoke tests ($0.39 total) before any bulk run.** The
+      live adapters are written against fal's published schemas and tested
+      against a stub transport, which proves they implement the documentation and
+      cannot prove the documentation is right. `scripts/smoke_live.py --image
+      --confirm-spend` then `--video --confirm-spend`, and play the clip to check
+      it really is the length the API claims.
 - [ ] **Start collecting pairwise annotations by week 8.** This is the critical
       path — if it slips, the trained predictor has no labels and the research
       half of the project collapses.
@@ -284,7 +305,12 @@ Verified on this machine, and they shaped the architecture:
       fallback correctly refuses to touch.
 - [ ] Promote `focus` from measurement to blocking check once real uploads have
       supplied an honest distribution (week 6).
-- [ ] Live image provider adapter + gate recalibration on real generations.
+- [x] Live image and video adapters (`adproviders.fal`), registered so
+      `AD_PROVIDER_MODE=live` resolves them and refusing to build without a key.
+- [ ] Gate recalibration on real generations. `THRESH_PALETTE`,
+      `THRESH_SAFE_AREA` and `THRESH_FOCUS` were set against the mock renderer
+      and have no standing until they have seen real output — do this before the
+      300-image corpus, not after.
 - [ ] Colab: embedding extractors, Stage A pretrain, Stage B Bradley-Terry
       calibration, ablation tables.
 - [ ] Next.js product UI, smart crop, ffmpeg audio mix, platform previews.
