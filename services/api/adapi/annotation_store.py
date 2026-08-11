@@ -53,6 +53,7 @@ from sqlalchemy import (
     MetaData,
     String,
     Table,
+    case,
     func,
     select,
 )
@@ -85,6 +86,25 @@ CATCH_RATE = 0.06
 #: opening 15. Note the corpus needs at least as many decoys as there are
 #: checkpoints, since an annotator sees each catch pair only once.
 CATCH_CHECKPOINTS = (3, 8, 14, 21, 29, 38, 48, 59, 71, 84)
+
+#: How many independent judgements each kind of comparison is collected for.
+#:
+#: Within-set pairs are targeted twice and everything else once, which is not a
+#: preference — it is arithmetic. Three candidates judged once per pair can cycle
+#: (A>B, B>C, C>A), and such a set has no best candidate, so it is excluded from
+#: top-1 retention entirely rather than resolved by a coin. Measured on 100
+#: simulated sets, doubling only the within-set pairs takes intransitive sets from
+#: 15% to 5%, grows the testable pool from 532 to 832 comparisons, and is what makes
+#: inter-annotator agreement — and therefore the noise ceiling — computable at all.
+#:
+#: The cost is +20% of the total judgements, because within-set pairs are only 300
+#: of 1,500: about 17 minutes each becomes about 20. Doubling *every* pair costs 33
+#: minutes each and buys almost nothing more. See ``docs/prediction-protocol.md``.
+TARGET_JUDGEMENTS = {
+    PairKind.WITHIN_SET: 2,
+    PairKind.CROSS_SET: 1,
+    PairKind.BRIDGE: 1,
+}
 
 #: How many low-coverage candidates to draw before picking randomly among them.
 #: Strict "fewest judgements" would serve every annotator the same pair at the
@@ -448,17 +468,34 @@ class AnnotationStore:
                     pair = _pair_from_row(rng.choice(catch))
                     return pair, self._left_item(pair, annotator_id, 0), 0
 
-            # 3. Coverage first: the least-judged pair this annotator has not seen.
+            # 3. Coverage first: the pair furthest below its target, that this
+            # annotator has not seen. Ordering on the *deficit* rather than on the
+            # raw count is what makes TARGET_JUDGEMENTS mean anything — with a raw
+            # count, every pair would reach one judgement and no within-set pair
+            # would ever reach two.
+            #
+            # The `notin_(seen)` clause matters here too: a second judgement always
+            # comes from a different annotator, which is precisely what
+            # inter-annotator agreement needs. A repeat by the same person measures
+            # test-retest instead and is served by branch 1.
             counts = (
                 select(judgements.c.pair_id, func.count().label("n"))
                 .group_by(judgements.c.pair_id)
                 .subquery()
             )
+            judged = func.coalesce(counts.c.n, 0)
+            target = case(
+                *(
+                    (comparison_pairs.c.kind == kind.value, value)
+                    for kind, value in TARGET_JUDGEMENTS.items()
+                ),
+                else_=1,
+            )
             stmt = (
-                select(comparison_pairs, func.coalesce(counts.c.n, 0).label("judged"))
+                select(comparison_pairs, judged.label("judged"), (judged - target).label("deficit"))
                 .outerjoin(counts, counts.c.pair_id == comparison_pairs.c.pair_id)
                 .where(comparison_pairs.c.kind != PairKind.CATCH.value)
-                .order_by(func.coalesce(counts.c.n, 0))
+                .order_by(judged - target)
                 .limit(_COVERAGE_POOL)
             )
             if seen:
@@ -467,8 +504,8 @@ class AnnotationStore:
 
         if not rows:
             return None
-        fewest = min(r.judged for r in rows)
-        pair = _pair_from_row(rng.choice([r for r in rows if r.judged == fewest]))
+        neediest = min(r.deficit for r in rows)
+        pair = _pair_from_row(rng.choice([r for r in rows if r.deficit == neediest]))
         return pair, self._left_item(pair, annotator_id, 0), 0
 
     @staticmethod

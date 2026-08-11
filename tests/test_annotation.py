@@ -477,3 +477,89 @@ async def test_stats_count_decoys_apart_from_the_corpus(store, annotator):
     )
     stats = await store.stats()
     assert (stats.n_judgements, stats.pairs_judged, stats.n_annotators) == (1, 1, 1)
+
+
+# --- Coverage targets --------------------------------------------------------
+
+
+async def test_within_set_pairs_are_targeted_twice_and_nothing_overshoots():
+    """The deficit ordering that makes ``TARGET_JUDGEMENTS`` mean anything.
+
+    Ordering the coverage query on the raw judgement count would take every pair to
+    one and stop, so no within-set pair would ever reach two.  Ordering on
+    ``judged - target`` serves whichever pair is furthest below its own target.
+
+    The overshoot assertion is the real content: a pair must not collect a third
+    judgement while other pairs are still at zero.  That is what would happen if the
+    ``LIMIT`` window were ordered by anything other than the deficit, and it wastes
+    a volunteer's time on a comparison that is already settled.
+    """
+    from collections import Counter
+
+    from adapi.annotation_store import TARGET_JUDGEMENTS
+    from adml.pairs import design_pairs
+
+    store = AnnotationStore.from_url("sqlite+aiosqlite://")
+    await store.create_all()
+    items = [
+        CorpusItem(
+            item_id=f"t{s:02d}-i{c}",
+            set_id=f"t{s:02d}",
+            kind=ItemKind.IMAGE,
+            asset=AssetRef(key=f"img/{s}/{c}.png"),
+        )
+        for s in range(40)
+        for c in range(3)
+    ]
+    await store.add_items(items)
+    design = design_pairs(items, seed=1, cross_set_rounds=6)
+    await store.add_pairs(design.pairs)
+
+    for n in range(8):
+        profile = await store.enrol(
+            AnnotatorProfile(annotator_id=f"cov{n}", agreed_to_research_use=True)
+        )
+        rng = random.Random(n)
+        for _ in range(60):
+            served = await store.next_pair(profile.annotator_id, rng=rng)
+            if served is None:
+                break
+            await store.record(
+                annotator_id=profile.annotator_id,
+                pair_id=served[0].pair_id,
+                choice=Choice.LEFT,
+                latency_ms=1500,
+            )
+
+    counts: Counter[str] = Counter()
+    for judgement in await store.list_judgements():
+        if judgement.showing == 0:
+            counts[judgement.pair_id] += 1
+
+    for kind, target in TARGET_JUDGEMENTS.items():
+        pairs = [p for p in design.pairs if p.kind is kind]
+        if not pairs:
+            continue
+        got = [counts.get(p.pair_id, 0) for p in pairs]
+        assert max(got) <= target, f"{kind.value} overshot its target of {target}"
+
+    within = [counts.get(p.pair_id, 0) for p in design.pairs if p.kind is PairKind.WITHIN_SET]
+    assert sum(1 for c in within if c >= 2) / len(within) > 0.9
+
+
+async def test_a_second_judgement_always_comes_from_a_different_annotator(store, annotator):
+    """Otherwise it would measure test-retest, not inter-annotator agreement."""
+    rng = random.Random(0)
+    served: list[tuple[str, int]] = []
+    for _ in range(30):
+        nxt = await store.next_pair(annotator, rng=rng)
+        if nxt is None:
+            break
+        pair, _left, showing = nxt
+        served.append((pair.pair_id, showing))
+        await store.record(
+            annotator_id=annotator, pair_id=pair.pair_id, choice=Choice.LEFT, latency_ms=1500
+        )
+
+    first_showings = [pair_id for pair_id, showing in served if showing == 0]
+    assert len(first_showings) == len(set(first_showings))

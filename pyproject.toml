@@ -70,3 +70,11 @@ ignore = [
 # framework's dependency-injection idiom, not the mutable-default bug B008 exists
 # to catch.
 "services/api/adapi/main.py" = ["B008"]
+
+# Colab notebooks are linted for real errors but not for module-level style: cells
+# legitimately import next to the code that uses them, and a name defined in one
+# cell is used in the next. The contract that actually matters — that the npz this
+# notebook writes is loadable by `adml.embeddings` — is asserted in
+# `tests/test_predictor.py::test_the_notebook_write_format_loads_without_the_repo`
+# rather than by a linter.
+"notebooks/*.ipynb" = ["E401", "E402", "E702", "F401", "F821", "I001"]

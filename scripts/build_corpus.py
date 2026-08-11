@@ -33,7 +33,7 @@ for package in ("schema", "providers", "ml"):
 sys.path.insert(0, str(ROOT / "services" / "api"))
 
 import adproviders as P  # noqa: E402
-from adapi.annotation_store import AnnotationStore  # noqa: E402
+from adapi.annotation_store import TARGET_JUDGEMENTS, AnnotationStore  # noqa: E402
 from adapi.store import JobStore  # noqa: E402
 from adml import degrade as D  # noqa: E402
 from adml import pairs as PAIRS  # noqa: E402
@@ -198,11 +198,21 @@ async def _run(args: argparse.Namespace) -> int:
     print(f"  {design.summary()}")
     if design.isolated_items:
         print(f"  WARNING {len(design.isolated_items)} items have no comparisons")
+    # The effort estimate reads the store's own collection targets rather than a
+    # flag, so the number quoted to a volunteer is the number the serving policy
+    # will actually ask of them. Within-set pairs are targeted twice; see
+    # `TARGET_JUDGEMENTS` for the arithmetic behind that.
+    per_pair = args.judgements_per_pair
+    if per_pair is None:
+        wanted = sum(TARGET_JUDGEMENTS.get(p.kind, 1) for p in design.pairs)
+        per_pair = wanted / len(design.pairs) if design.pairs else 1.0
     effort = design.estimate_effort(
-        judgements_per_pair=args.judgements_per_pair,
+        judgements_per_pair=per_pair,
         annotators=args.annotators,
         repeat_rate=0.08,
     )
+    targets = ", ".join(f"{k.value} x{v}" for k, v in TARGET_JUDGEMENTS.items())
+    print(f"  targets: {targets}  ({per_pair:.2f} judgements per pair on average)")
     print(
         f"  {effort['judgements']:.0f} judgements = {effort['total_minutes']:.0f} min total, "
         f"{effort['minutes_each']:.0f} min each across {args.annotators} annotators"
@@ -252,7 +262,13 @@ def main() -> int:
         help="cross-set matchings per item; higher means more pairs and finer strengths",
     )
     parser.add_argument("--annotators", type=int, default=6, help="for the effort estimate")
-    parser.add_argument("--judgements-per-pair", type=float, default=1.0)
+    parser.add_argument(
+        "--judgements-per-pair",
+        type=float,
+        default=None,
+        help="override the estimate; by default it is derived from the store's "
+        "TARGET_JUDGEMENTS so the quoted time matches what will be asked",
+    )
     parser.add_argument("--max-jobs", type=int, default=1000)
     parser.add_argument("--seed", type=int, default=7)
     args = parser.parse_args()

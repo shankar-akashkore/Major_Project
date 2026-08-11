@@ -53,6 +53,18 @@ Then open <http://localhost:8077/api/annotate/ui>, or share that URL on your
 network. `scripts/annotation_report.py` says whether the labels are usable —
 see [docs/annotation-protocol.md](docs/annotation-protocol.md).
 
+Once judgements exist, measure the corpus and train the predictor:
+
+```bash
+.venv/bin/python scripts/extract_features.py && .venv/bin/python scripts/train_predictor.py
+```
+
+That prints the split accounting, the annotator noise ceiling, every baseline as a
+*paired* comparison, and the feature-group ablation —
+see [docs/prediction-protocol.md](docs/prediction-protocol.md). The embedding
+features need a GPU and come from `notebooks/colab_embeddings.ipynb`; without them
+the run is a smaller experiment rather than a broken one.
+
 ```bash
 .venv/bin/python -m pytest tests/ -q
 ```
@@ -189,6 +201,19 @@ holds only what can refuse a job; `ReferenceReport.measurements` holds quantitie
 that are real but whose thresholds are not yet calibrated against real uploads.
 `focus` currently sits in the second group — see below.
 
+**Stand-in features cannot masquerade as real ones.** `adml.embeddings` can produce
+deterministic pseudo-embeddings so the training path runs with no downloads, but
+`is_real=False` travels with them into the feature table and onto every printed
+result line, and `train_predictor.py` opens with a banner saying the run is not a
+result. Because those vectors carry no visual information, a model trained on them
+must score at chance — which makes them a leakage test as well as a placeholder.
+
+**Every accuracy is printed against the ceiling, never against 1.0.** Human
+annotators disagree with themselves on repeats, so a perfect predictor still cannot
+match a single judgement all the time. At 0.60 test-retest agreement the ceiling is
+0.72; a model at 0.68 is at 94% of achievable rather than mediocre. The inversion is
+verified against a simulation, not asserted.
+
 ---
 
 ## Layout
@@ -201,13 +226,14 @@ services/api/        FastAPI: jobs, SSE progress, budget, media, annotation
 services/worker/     the pipeline: sampler, briefs, gate, scoring, orchestrator
 packages/schema/     the job contract — single source of truth, no heavy deps
 packages/providers/  provider ABCs, MockProvider, CostGovernor, ledger, storage
-packages/ml/         numpy features, pair design, Bradley-Terry + metrics;
-                     torch extractors and the trained head land later
+packages/ml/         numpy features, pair design, Bradley-Terry + metrics,
+                     set-wise splits, the pairwise head, the evaluation harness
 scripts/             calibrate_gate.py, calibrate_intake.py, smoke_live.py,
-                     generate_corpus.py, build_corpus.py, annotation_report.py
-notebooks/           Colab: Stage A pretrain, Stage B calibration, ablations
+                     generate_corpus.py, build_corpus.py, annotation_report.py,
+                     extract_features.py, train_predictor.py
+notebooks/           colab_embeddings.ipynb — the only part that needs torch
 fixtures/            uploads, generations, annotation corpus, golden demo set
-tests/               127 tests
+tests/               219 tests
 ```
 
 `packages/schema` imports no torch, no provider SDK and no DB driver, so it stays
@@ -312,7 +338,17 @@ Verified on this machine, and they shaped the architecture:
       built and verified against a simulated session; no human has used it. This
       is the critical path — if it slips, the trained predictor has no labels and
       the research half of the project collapses. Recruit early: the design costs
-      ~18 minutes each across six annotators.
+      ~20 minutes each across six annotators.
+- [x] **The predictor and the evaluation harness** (week 9–11): grouped feature
+      vectors sized to the label count, set-wise splitting, the numpy pairwise
+      head, baselines compared with paired tests, the annotator noise ceiling, and
+      the ablation runner. See
+      [docs/prediction-protocol.md](docs/prediction-protocol.md).
+- [ ] **The corpus needs 100 sets, and 24 will not do.** Measured: at 24 sets the
+      pooled 95% margin is ±0.074, wider than every model difference that matters,
+      so nothing about the predictor is resolvable. At 100 sets it is ±0.040 and
+      the trained model reaches 95% of an oracle's accuracy. This is why the $12
+      generation run is on the critical path rather than optional.
 - [ ] **Re-derive the annotator-quality thresholds from the first real session.**
       `MIN_REPEAT_CONSISTENCY`, `MIN_PLAUSIBLE_LATENCY_MS` and `MAX_SIDE_BIAS_Z`
       are 2AFC-literature starting points, not measurements of this task. Section
@@ -335,6 +371,17 @@ Verified on this machine, and they shaped the architecture:
       `THRESH_SAFE_AREA` and `THRESH_FOCUS` were set against the mock renderer
       and have no standing until they have seen real output — do this before the
       300-image corpus, not after.
-- [ ] Colab: embedding extractors, Stage A pretrain, Stage B Bradley-Terry
-      calibration, ablation tables.
+- [ ] **Run `notebooks/colab_embeddings.ipynb` on a GPU.** SigLIP and DINOv2 are
+      written and the write format is asserted against the loader, but no GPU has
+      executed it, so the `embedding`, `aesthetic` and `identity` rows of the
+      ablation table are pending rather than zero.
+- [ ] **Stage A pretraining is blocked on data access, not on code.** SMPD-Video
+      and Pitt Ads both need registration. Stage B — the pairwise calibration — does
+      not depend on it and runs today.
+- [ ] The `identity` feature group is unbuilt: product-DINO and face-ArcFace
+      similarity need the reference images alongside the candidates in Colab, which
+      the manifest does not yet carry.
+- [ ] Video-stage prediction is untested end to end. `adml.featureset.video_features`
+      has unit tests but no videos exist, so the headline image→video rank-agreement
+      number has never been computed on real data.
 - [ ] Next.js product UI, smart crop, ffmpeg audio mix, platform previews.
