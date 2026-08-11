@@ -33,6 +33,7 @@ from .candidates import (
     ScoreBreakdown,
     VideoCandidate,
 )
+from .delivery import AudioReport, DeliveryReport, ReframeReport
 from .enums import (
     AspectRatio,
     BackgroundTreatment,
@@ -121,6 +122,9 @@ __all__ = [
     "CutoutReport",
     "FaceReport",
     "IntakeReport",
+    "DeliveryReport",
+    "ReframeReport",
+    "AudioReport",
     "ReferenceReport",
     # job
     "BudgetStatus",

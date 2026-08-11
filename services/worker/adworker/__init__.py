@@ -1,6 +1,7 @@
 """The generation pipeline: sampling, brief compilation, gating, scoring, ranking."""
 
 from .briefs import compile_briefs
+from .delivery import build_bundle, deliver, preview_frame, reframe, report_card
 from .gate import evaluate_image, stricter_prompt
 from .intake import preprocess
 from .pipeline import ConsentRefused, NoViableCandidates, Pipeline, UnusableReference
@@ -17,6 +18,11 @@ __all__ = [
     "NoViableCandidates",
     "UnusableReference",
     "preprocess",
+    "deliver",
+    "reframe",
+    "preview_frame",
+    "report_card",
+    "build_bundle",
     "compile_briefs",
     "sample_design_points",
     "min_pairwise_distance",

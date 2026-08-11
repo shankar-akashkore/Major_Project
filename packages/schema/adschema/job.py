@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 
 from .brief import BriefSet
 from .candidates import ImageCandidate, RankedCandidate, VideoCandidate
+from .delivery import DeliveryReport
 from .enums import JobState, Stage
 from .intake import IntakeReport
 from .request import AdJobRequest
@@ -86,6 +87,11 @@ class JobResult(BaseModel):
     images: list[ImageCandidate] = Field(default_factory=list)
     videos: list[VideoCandidate] = Field(default_factory=list)
     ranking: list[RankedCandidate] = Field(default_factory=list)
+    delivery: DeliveryReport | None = Field(
+        default=None,
+        description="What stage 8 produced: platform renders and how lossy each "
+        "reframe was, mockup previews, the audio mix's provenance, and the bundle.",
+    )
 
     total_cost_usd: float = Field(default=0.0, ge=0.0)
 

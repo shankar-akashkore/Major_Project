@@ -30,6 +30,9 @@ fixtures/intake/*
 # The annotation corpus: bulk-generated images and their catch-trial decoys.
 # Hundreds of megabytes eventually, and reproducible from the ledger and the seeds.
 fixtures/corpus/*
+# Stage 8 output: platform renders, previews and the download bundle. Regenerated
+# from the job's videos every run, and a bundle alone is over 100 kB.
+fixtures/delivery/*
 # Research-tier clips: generated free on a Colab GPU, tens of megabytes each, and
 # reproducible by re-running notebooks/colab_video.ipynb over the same corpus.
 fixtures/research/*

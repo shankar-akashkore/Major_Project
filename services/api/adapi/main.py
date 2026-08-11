@@ -314,6 +314,59 @@ async def get_job_ledger(job_id: str) -> dict:
     }
 
 
+@app.get("/api/jobs/{job_id}/delivery")
+async def get_delivery(job_id: str) -> dict:
+    """What stage 8 produced, including how lossy each reframe was.
+
+    Separate from the job record so a client can poll the expensive part of the
+    result without re-fetching every candidate's brief and score breakdown.
+    """
+    record = await store.get(job_id)
+    if record is None:
+        raise HTTPException(404, f"no job {job_id!r}")
+    if record.result is None or record.result.delivery is None:
+        raise HTTPException(
+            409,
+            f"job {job_id!r} has not reached delivery (state {record.state.value})",
+        )
+    report = record.result.delivery
+    return {
+        "job_id": job_id,
+        "summary": report.summary(),
+        "delivery": report.model_dump(mode="json"),
+        "download_url": f"/api/jobs/{job_id}/bundle" if report.bundle else None,
+    }
+
+
+@app.get("/api/jobs/{job_id}/bundle")
+async def get_bundle(job_id: str) -> Response:
+    """Download the zip: every render, preview and report card for the winner.
+
+    Served with a filename the user will recognise a week later, rather than
+    ``bundle.zip`` — a downloads folder with four of those in it is a downloads
+    folder with none.
+    """
+    record = await store.get(job_id)
+    if record is None:
+        raise HTTPException(404, f"no job {job_id!r}")
+    report = record.result.delivery if record.result else None
+    if report is None or report.bundle is None:
+        raise HTTPException(409, f"job {job_id!r} has no delivery bundle yet")
+    try:
+        data = storage.get_bytes(report.bundle.key)
+    except (FileNotFoundError, ValueError) as exc:
+        raise HTTPException(404, "the bundle is recorded but missing from storage") from exc
+
+    slug = "".join(
+        c if c.isalnum() or c in "-_" else "-" for c in record.request.product_name.lower()
+    ).strip("-")
+    return Response(
+        content=data,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{slug or "ad"}-{job_id[:8]}.zip"'},
+    )
+
+
 @app.get("/api/jobs/{job_id}/events")
 async def stream_events(job_id: str) -> StreamingResponse:
     """SSE stream: buffered history first, then the live tail."""

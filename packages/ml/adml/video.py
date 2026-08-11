@@ -683,6 +683,120 @@ def measure(
 H264_CRF = 20
 
 
+def _run_filtergraph(data: bytes, container: str, filters: str, *, crf: int) -> bytes:
+    """Re-encode a clip through one ffmpeg filtergraph.
+
+    Shared by every delivery transform, so they all inherit the same determinism
+    settings and the same failure reporting. Audio is passed through when present
+    (``-c:a copy`` would break if the filter changes duration, so it is re-encoded).
+    """
+    ffmpeg = _require_ffmpeg(container)
+    source = _write_temp(data, container)
+    target = _write_temp(b"", "mp4")
+    try:
+        proc = subprocess.run(
+            [
+                ffmpeg,
+                "-v",
+                "error",
+                "-y",
+                "-fflags",
+                "+bitexact",
+                "-i",
+                source,
+                "-vf",
+                filters,
+                "-c:v",
+                "libx264",
+                "-preset",
+                "veryfast",
+                "-crf",
+                str(crf),
+                "-pix_fmt",
+                "yuv420p",
+                "-c:a",
+                "aac",
+                "-b:a",
+                "128k",
+                "-threads",
+                "1",
+                "-map_metadata",
+                "-1",
+                "-fflags",
+                "+bitexact",
+                "-flags:v",
+                "+bitexact",
+                "-movflags",
+                "+faststart",
+                "-f",
+                "mp4",
+                target,
+            ],
+            capture_output=True,
+            timeout=SUBPROCESS_TIMEOUT_S,
+        )
+        if proc.returncode != 0:
+            raise ClipDecodeError(
+                f"ffmpeg filter {filters!r} failed: "
+                f"{proc.stderr.decode('utf-8', 'replace').strip()}"
+            )
+        with open(target, "rb") as fh:
+            return fh.read()
+    finally:
+        os.unlink(source)
+        os.unlink(target)
+
+
+def render_crop(
+    data: bytes,
+    *,
+    x: int,
+    y: int,
+    width: int,
+    height: int,
+    out_width: int,
+    out_height: int,
+    crf: int = H264_CRF,
+) -> bytes:
+    """Crop to a window, then scale to the delivery size."""
+    info = probe(data)
+    filters = f"crop={width}:{height}:{x}:{y},scale={out_width}:{out_height}"
+    return _run_filtergraph(data, info.container, filters, crf=crf)
+
+
+def render_padded(
+    data: bytes,
+    *,
+    out_width: int,
+    out_height: int,
+    blur: int = 24,
+    crf: int = H264_CRF,
+) -> bytes:
+    """Fit the whole frame inside the target and fill the margins.
+
+    The fill is a blurred, over-scaled copy of the frame rather than a flat colour.
+    That is what social platforms and every editing tool do for this case, and the
+    reason is worth stating: a flat bar reads as a mistake, a blurred extension reads
+    as a deliberate frame. It also keeps the palette on-brand for free, since the
+    fill is made of the ad's own pixels.
+
+    Used when :func:`adml.crop.plan` decides a crop would discard too much — a 9:16
+    clip reframed to 16:9 keeps about a third of its height, which usually means
+    losing the model's face.
+    """
+    info = probe(data)
+    filters = (
+        f"split[bg][fg];"
+        # increase_scale then crop guarantees the background covers the target even
+        # when the aspect change is extreme.
+        f"[bg]scale={out_width}:{out_height}:force_original_aspect_ratio=increase,"
+        f"crop={out_width}:{out_height},boxblur={blur}:2[blurred];"
+        f"[fg]scale={out_width}:{out_height}:force_original_aspect_ratio=decrease[fitted];"
+        f"[blurred][fitted]overlay=(W-w)/2:(H-h)/2"
+    )
+    return _run_filtergraph(data, info.container, filters, crf=crf)
+
+
 def encode_mp4(frames: list[np.ndarray], fps: float, *, crf: int = H264_CRF) -> bytes:
     """Encode RGB frames to an H.264 MP4.
 

@@ -27,9 +27,15 @@ Split by hardware requirement on purpose:
 * :mod:`adml.serving` persists a fitted transform and head together and scores one
   candidate set with them. Without it the trained model could not reach the
   product: the evaluation and the pipeline were scoring with different things.
+* :mod:`adml.crop` and :mod:`adml.audio` are the delivery half: placing a reframe
+  window by saliency rather than by centring it, and mixing a licensed music bed to
+  a stated loudness. Both report what they cost — a reframe discards content, and a
+  bed without recorded provenance is refused outright.
 """
 
 from . import (
+    audio,
+    crop,
     degrade,
     embeddings,
     evaluate,
@@ -44,6 +50,8 @@ from . import (
 )
 
 __all__ = [
+    "audio",
+    "crop",
     "degrade",
     "embeddings",
     "evaluate",

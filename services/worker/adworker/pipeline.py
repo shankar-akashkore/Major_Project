@@ -22,6 +22,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from adml import video as V
+from adml.audio import AudioBed
 from adml.serving import ServedModel
 from adproviders import (
     BudgetExceeded,
@@ -50,6 +51,7 @@ from adschema import (
 )
 
 from .briefs import compile_briefs
+from .delivery import deliver
 from .gate import evaluate_image, stricter_prompt
 from .intake import preprocess
 from .scoring import load_ranker, rank_videos, score_image_set, score_video
@@ -91,6 +93,7 @@ class Pipeline:
         llm_provider: LLMProvider,
         on_progress: ProgressHook = None,
         ranker: ServedModel | None = None,
+        audio_bed: AudioBed | None = None,
     ):
         self.storage = storage
         self.governor = governor
@@ -98,6 +101,10 @@ class Pipeline:
         self.videos = video_provider
         self.llm = llm_provider
         self.on_progress = on_progress
+        # No bed is the normal state. This project ships no audio content, because
+        # bundling music with unrecorded provenance into a deliverable is the one
+        # delivery mistake that cannot be corrected after publication.
+        self.audio_bed = audio_bed
         # Loaded once per pipeline rather than per job: reading a few kilobytes of
         # npz is cheap, but doing it inside every job would make a mid-run retrain
         # change the model between two jobs of the same batch, and the evaluation
@@ -613,18 +620,33 @@ class Pipeline:
 
     async def _delivery(self, record: JobRecord, result: JobResult) -> None:
         await self._emit(record, Stage.DELIVERY, "started", "preparing platform renders")
-        # Smart crop, caption burn-in and the ffmpeg audio mix land in week 13.
-        # The native aspect ratio is registered now so the UI has something to show.
+
+        # Every candidate keeps its native render, so the UI can play the runners-up.
         ratio = record.request.aspect_ratio.value
         for video in result.videos:
-            video.platform_renders[ratio] = video.asset
-        await self._emit(
-            record,
-            Stage.DELIVERY,
-            "completed",
-            f"{len(result.videos)} videos ready at {ratio}",
-            1.0,
-        )
+            video.platform_renders.setdefault(ratio, video.asset)
+
+        report = deliver(result, record.request, self.storage, bed=self.audio_bed)
+        result.delivery = report
+
+        for render in report.renders:
+            await self._emit(
+                record,
+                Stage.DELIVERY,
+                "progress",
+                f"{render.aspect_ratio}: {render.mode}, keeps "
+                f"{render.retained_salience:.0%} of the salient content"
+                + (
+                    f" where a centre crop would keep {render.centre_crop_salience:.0%}"
+                    if render.centre_crop_salience is not None
+                    else ""
+                ),
+                0.6,
+            )
+        for warning in report.warnings:
+            await self._emit(record, Stage.DELIVERY, "warning", warning, 0.8)
+
+        await self._emit(record, Stage.DELIVERY, "completed", report.summary(), 1.0)
 
     # --- Entry point -------------------------------------------------------
 

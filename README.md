@@ -234,6 +234,19 @@ while the scale study in `docs/prediction-protocol.md` quotes the raw ratio
 (`0.68/0.72` = 94%). The raw ratio awards a model at chance 69% of the ceiling, so
 the card uses the corrected form.
 
+**Reframing reports what it cost.** Delivering a 9:16 ad as 16:9 throws away most
+of the frame. `adml.crop` places the window by saliency rather than centring it, and
+every render says how much attention-weighted content survived *and* what a centre
+crop would have kept — measured at 84% vs 75% for 4:5 and 56% vs 34% for 16:9. Below
+70% retention it letterboxes instead of cropping and says why. A lossy reframe emits
+a `warning` event rather than shipping quietly.
+
+**Audio without a recorded licence cannot be constructed.** `adml.audio.AudioBed`
+raises `LicenceMissing` without a title, source and licence. This project ships no
+audio content: no bed is the normal state and the report says so, and the synthesised
+tone used to exercise the mixing path is flagged `is_test_signal` so it can never be
+described as a soundtrack.
+
 **Video is decoded, not assumed.** Every clip measurement goes through
 `adml.video`, which reads duration, frame rate and geometry out of the file with
 ffprobe rather than trusting the provider's response. Delivered clips are checked
@@ -250,19 +263,21 @@ apps/web/            Next.js product UI — not built yet (week 13)
 services/api/        FastAPI: jobs, SSE progress, budget, media, annotation
   adapi/dev.html     single-file inspection harness (not the product UI)
   adapi/annotate.html  the 2AFC comparison tool, shareable, no build step
-services/worker/     the pipeline: sampler, briefs, gate, scoring, orchestrator
+services/worker/     the pipeline: sampler, briefs, gate, scoring, delivery,
+                     orchestrator
 packages/schema/     the job contract — single source of truth, no heavy deps
 packages/providers/  provider ABCs, MockProvider, CostGovernor, ledger, storage
 packages/ml/         numpy features, pair design, Bradley-Terry + metrics,
                      set-wise splits, the pairwise head, the evaluation harness,
-                     ffmpeg video I/O, model persistence and serving
+                     ffmpeg video I/O, model persistence and serving,
+                     saliency-aware reframing, the audio mix
 scripts/             calibrate_gate.py, calibrate_intake.py, smoke_live.py,
                      generate_corpus.py, build_corpus.py, annotation_report.py,
                      extract_features.py, train_predictor.py
 notebooks/           colab_embeddings.ipynb, colab_video.ipynb — the only parts
                      that need torch or a GPU
 fixtures/            uploads, generations, annotation corpus, golden demo set
-tests/               272 tests
+tests/               298 tests
 ```
 
 `packages/schema` imports no torch, no provider SDK and no DB driver, so it stays
@@ -432,4 +447,20 @@ Verified on this machine, and they shaped the architecture:
 - [ ] Video-stage prediction is untested end to end. The motion feature group and
       `score_video` now run against real MP4s, but only against mock ones — no
       generated video exists yet, from either tier.
-- [ ] Next.js product UI (week 13).
+- [x] **Delivery** (week 13): saliency-aware reframing with the loss measured
+      against a centre crop, letterboxing when a crop would discard too much,
+      platform mockup previews drawn from the same safe area the score uses, an
+      ffmpeg audio mix gated on a recorded licence, report cards and a download
+      bundle. See [docs/delivery-protocol.md](docs/delivery-protocol.md).
+- [ ] **The API has no HTTP-level tests.** `/api/jobs/{id}/delivery` and
+      `/api/jobs/{id}/bundle` were verified by hand against the real ASGI app and the
+      pipeline behind them is covered, but the routes are not in the suite:
+      `adapi.main` builds its store, storage and ledger at module scope, so a test
+      cannot isolate them without a small refactor. Worth doing before the viva.
+- [ ] **Supply a licensed music bed.** The mix is built and verified, and the project
+      ships no audio, so a delivered clip is silent until a bed with recorded
+      provenance is passed to the pipeline. The tone used in tests is flagged as a
+      test signal and must not be shipped.
+- [ ] Next.js product UI (week 13 carried forward). The FastAPI dev harness and the
+      annotation tool cover inspection and label collection; the wizard, job board
+      and ranked-results UI are still unbuilt.
