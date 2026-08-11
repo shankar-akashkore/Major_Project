@@ -173,10 +173,25 @@ because that palette then constrains the quality gate.
 
 ## Honesty markers
 
-Scores carry `is_stub=True` and `model_version="heuristic-0"`. What exists today
-is a documented linear blend over real numpy features — which is also one of the
-baselines the trained model must beat, so it is the control condition rather than
-throwaway scaffolding.
+Scores carry `model_version="heuristic-0"` until a trained model is on disk. The
+heuristic is a documented linear blend over real numpy features — which is also one
+of the baselines the trained model must beat, so it is the control condition rather
+than throwaway scaffolding.
+
+**A trained model is still a stub until it is shown to work.** `ModelCard.is_stub`
+is True in three cases: features that came from stand-ins, a held-out accuracy that
+was never measured, and — the one worth stating — an accuracy whose 95% interval
+does not clear 0.5. Evaluated and found not to work is a stronger reason to label
+than never evaluated at all. The first model this project saved sat at 0.496 and is
+marked accordingly, in the training output and on every ranking it serves.
+
+**A model that no longer fits its features is refused, not reinterpreted.** Saved
+feature names are compared as an ordered list at serving time, so a reordering is
+caught as surely as a missing column — a reordering is the more dangerous case,
+because every weight still finds a number to multiply and the output stays in range.
+A model trained with the Colab embedding blocks cannot be served on this laptop
+(there is no torch to compute them), so the pipeline falls back to the heuristic
+with a `warning` event rather than failing the job or pretending.
 
 Gate checks needing model weights this machine cannot host carry
 `implemented=False` and pass by default: `product_identity` (DINOv2),
@@ -211,8 +226,20 @@ must score at chance — which makes them a leakage test as well as a placeholde
 **Every accuracy is printed against the ceiling, never against 1.0.** Human
 annotators disagree with themselves on repeats, so a perfect predictor still cannot
 match a single judgement all the time. At 0.60 test-retest agreement the ceiling is
-0.72; a model at 0.68 is at 94% of achievable rather than mediocre. The inversion is
-verified against a simulation, not asserted.
+0.72; a model at 0.68 is most of the way to achievable rather than mediocre. The
+inversion is verified against a simulation, not asserted. Two ways to express "most
+of the way" appear in this repo and they are different quantities, not a discrepancy:
+`ModelCard.ceiling_fraction` is chance-corrected (`(0.68-0.5)/(0.72-0.5)` = 82%),
+while the scale study in `docs/prediction-protocol.md` quotes the raw ratio
+(`0.68/0.72` = 94%). The raw ratio awards a model at chance 69% of the ceiling, so
+the card uses the corrected form.
+
+**Video is decoded, not assumed.** Every clip measurement goes through
+`adml.video`, which reads duration, frame rate and geometry out of the file with
+ffprobe rather than trusting the provider's response. Delivered clips are checked
+against the 8-10 s commitment from their bytes, and provider-versus-file drift is
+emitted as a job event. Concatenation seams are detected from the pixels, so a
+chained clip is identified whether or not the provider admits to one.
 
 ---
 
@@ -227,13 +254,15 @@ services/worker/     the pipeline: sampler, briefs, gate, scoring, orchestrator
 packages/schema/     the job contract — single source of truth, no heavy deps
 packages/providers/  provider ABCs, MockProvider, CostGovernor, ledger, storage
 packages/ml/         numpy features, pair design, Bradley-Terry + metrics,
-                     set-wise splits, the pairwise head, the evaluation harness
+                     set-wise splits, the pairwise head, the evaluation harness,
+                     ffmpeg video I/O, model persistence and serving
 scripts/             calibrate_gate.py, calibrate_intake.py, smoke_live.py,
                      generate_corpus.py, build_corpus.py, annotation_report.py,
                      extract_features.py, train_predictor.py
-notebooks/           colab_embeddings.ipynb — the only part that needs torch
+notebooks/           colab_embeddings.ipynb, colab_video.ipynb — the only parts
+                     that need torch or a GPU
 fixtures/            uploads, generations, annotation corpus, golden demo set
-tests/               219 tests
+tests/               272 tests
 ```
 
 `packages/schema` imports no torch, no provider SDK and no DB driver, so it stays
@@ -314,7 +343,7 @@ Verified on this machine, and they shaped the architecture:
 | ~23 GB free disk | Won't fit torch + node_modules + media | **Free ≥40 GB before week 9.** Media in object storage; store embeddings, not files |
 | OpenCV 5.0 ships an empty `cv2/data/` | The bundled Haar cascade XMLs were dropped, and face detection is the only thing OpenCV is here for | Pinned to `>=4.10,<5`. Verified: 4.14.0 bundles 17 cascades, 5.0.0 bundles none |
 | No GPU | No local training | Colab free tier |
-| No ffmpeg | Needed for chaining, smart crop, audio mix | `brew install ffmpeg` before week 13. Mock video is animated GIF meanwhile, with real frame timings so duration checks hold |
+| ~~No ffmpeg~~ | Installed. Mock video is now H.264 MP4, so free runs exercise the same decode path as paid Kling clips | Falls back to animated GIF where ffmpeg is absent, with real frame timings either way so duration checks hold |
 
 ---
 
@@ -381,7 +410,26 @@ Verified on this machine, and they shaped the architecture:
 - [ ] The `identity` feature group is unbuilt: product-DINO and face-ArcFace
       similarity need the reference images alongside the candidates in Colab, which
       the manifest does not yet carry.
-- [ ] Video-stage prediction is untested end to end. `adml.featureset.video_features`
-      has unit tests but no videos exist, so the headline image→video rank-agreement
-      number has never been computed on real data.
-- [ ] Next.js product UI, smart crop, ffmpeg audio mix, platform previews.
+- [x] **The video half of the pipeline could not read a real video** (week 12).
+      Every clip measurement decoded through PIL, which cannot open an MP4, and the
+      mock provider wrote GIFs — so the first paid Kling clip would have raised
+      `UnidentifiedImageError` in stage 7, after being billed. `adml.video` is now
+      the one place a clip becomes frames, mock video is H.264 MP4, and delivered
+      durations are verified from the bytes.
+- [x] **The trained model can now reach the product** (week 12). `adml.serving`
+      persists the fitted transform and the head together; `train_predictor.py
+      --save` writes it; the pipeline loads it and falls back loudly when it does
+      not fit. Before this the evaluation and the pipeline scored with different
+      things and only one of them was in the report.
+- [x] **The research tier exists** (week 12). `adproviders.PrerenderedVideoProvider`
+      serves clips generated free on a Colab GPU from a manifest, at $0 and without
+      requiring live mode. It refuses a miss rather than substituting a mock clip,
+      which is what keeps the tier comparison meaningful.
+- [ ] **Run `notebooks/colab_video.ipynb` on a GPU.** The provider, the manifest
+      contract and the fingerprint round-trip are all tested, but no clip has been
+      generated: the research-tier video corpus is empty, so the headline
+      image→video rank-agreement number still has no data behind it.
+- [ ] Video-stage prediction is untested end to end. The motion feature group and
+      `score_video` now run against real MP4s, but only against mock ones — no
+      generated video exists yet, from either tier.
+- [ ] Next.js product UI (week 13).

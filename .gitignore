@@ -30,6 +30,14 @@ fixtures/intake/*
 # The annotation corpus: bulk-generated images and their catch-trial decoys.
 # Hundreds of megabytes eventually, and reproducible from the ledger and the seeds.
 fixtures/corpus/*
+# Research-tier clips: generated free on a Colab GPU, tens of megabytes each, and
+# reproducible by re-running notebooks/colab_video.ipynb over the same corpus.
+fixtures/research/*
+# Trained rankers are small (a linear head over ~40 features is a few kB) but they
+# are build output, not source, and a stale committed model would be served by the
+# pipeline in preference to nothing at all. Regenerate with
+# `scripts/train_predictor.py --save`.
+fixtures/models/*
 !fixtures/**/.gitkeep
 !fixtures/golden/**/*.json
 

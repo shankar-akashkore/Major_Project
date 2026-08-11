@@ -335,6 +335,134 @@ budget, most of them one-hots with nothing to say.
 
 ---
 
+## 11. Serving: the model the report describes is the model the product uses
+
+Until week 12 the trained head could not be used by the pipeline at all. Training
+ran in `scripts/train_predictor.py`, the fitted objects lived for the length of that
+process, and `adworker.scoring` went on computing a hand-weighted blend stamped
+`heuristic-0`. The evaluation and the product were scoring with two different
+things, and only one of them was in this document.
+
+`adml.serving` closes that gap. Four decisions inside it are worth recording.
+
+**The fitted transform is part of the model.** A `FeaturePipeline` holds PCA
+components and standardisation statistics fitted on training rows. Saving weights
+alone and re-fitting the transform at serving time would standardise against
+whatever candidates happened to be in front of it — *three frames from one job* — so
+a feature's value would depend on its peers rather than on itself. Both are written
+to one npz, or neither is.
+
+**Feature names are compared as an ordered list, and a mismatch raises.** The
+dangerous case is not a missing column, it is a *reordered* one: every weight still
+finds a number to multiply, the output stays inside 0-1, and nothing looks wrong.
+
+**A model can be unservable for a permanent, legitimate reason.** A model fitted
+with the Colab embedding blocks needs SigLIP and DINOv2 columns, and the serving path
+has no torch to compute them. That is not a bug to fix — it is the consequence of the
+file boundary this project is built on. So `score_image_set` falls back to the
+heuristic and the pipeline emits a `warning` event naming the mismatch. The
+alternative failure, a ranking silently produced by the baseline while a model was
+configured, is exactly what goes unnoticed until a write-up quotes the wrong thing.
+`train_predictor.py --save` says which groups a saved model needs, so the choice
+between "the model for the evaluation" and "the model the product can serve" is made
+deliberately rather than discovered per job.
+
+**The 0-1 score is a within-set position, not a calibrated prediction.** The
+pairwise objective has no output bias, so a constant added to every score cancels in
+every comparison and is not identifiable. `ServedScores.relative()` maps the set's
+worst to 0.0 and its best to 1.0 and says so; a single candidate maps to 0.5, because
+one item carries no ranking information. The component breakdown shown beside a
+served ranking stays heuristic — the trained head is one number over z-scored
+features, and decomposing it back into named components would be invention.
+
+### A model is a stub until it is shown to work
+
+`ModelCard.is_stub` is true in three cases, and the third is the one that needed
+adding:
+
+| case | why it is a stub |
+|---|---|
+| stand-in features | plausible rankings from vectors carrying no visual information |
+| accuracy never measured | nothing establishes it beats guessing |
+| **accuracy did not resolve above 0.5** | it *was* measured, and it does not work |
+
+The bar is the 95% interval's lower bound, not the point estimate — the same
+standard applied to every other difference in this document. The first model this
+project ever saved scored 0.496 with a CI low of 0.441 and would have shipped as a
+validated predictor without that third clause.
+
+Note that `ceiling_fraction` is **chance-corrected**: 0.68 against a 0.72 ceiling is
+`(0.68-0.5)/(0.72-0.5)` = 82%, not the 94% the raw ratio in §6 quotes. Both appear in
+this repo and they are different quantities. The raw ratio awards a model sitting at
+chance 69% of the ceiling, which is why the card uses the corrected form.
+
+---
+
+## 12. Video features, and the decoder that was never exercised
+
+The motion feature group existed before week 12 and could not have worked on a real
+clip. Every video measurement decoded through `adml.features.load_frames`, which is
+PIL; PIL cannot open an MP4. Mock video was written as GIF — the mock provider even
+rewrote `.mp4` output keys to `.gif` — so the whole video half of the pipeline had
+never seen the format every real provider returns. The first paid Kling clip would
+have raised `UnidentifiedImageError` in stage 7, *after* being generated and billed.
+
+`adml.video` is now the only place a clip becomes frames, and the mock provider
+writes H.264 MP4 where ffmpeg is available, so free runs travel the same path as paid
+ones. Three measurements came out of building it.
+
+### Cut detection had to be rebuilt on the wrong statistic's failure
+
+The first implementation scored transitions by frame correlation. It failed on
+exactly the case it existed for: a concatenation of two flat-coloured segments has no
+spatial structure to correlate, so **every transition including the seam scored
+1.000**. The underlying bug was in `temporal_consistency`, whose guard treated "both
+frames are constant" as "the frames are identical" — navy and orange are both
+constant and differ by 0.62 in mean intensity.
+
+`frame_similarity` now falls back to intensity agreement when either frame is flat.
+This is not a contrivance: ad creative routinely ends on a solid-colour card behind a
+logo, and any fade to white or black passes through frames with no structure at all.
+
+Cut detection moved onto motion energy, where the separation is enormous:
+
+| content | largest per-transition mean absolute difference |
+|---|---|
+| mock clips, every motion intent | **0.0093** |
+| high-motion `testsrc` pattern | 0.0093 |
+| navy→orange concatenation seam | **0.6201** |
+
+67x. Detection needs *both* an absolute floor (0.15) and a robust z-score, and each
+covers the other's blind spot: a `static_subtle` mock clip put its largest transition
+30 robust deviations above its own median at an absolute difference of 0.0021 — that
+is film grain, and the relative test alone calls it a cut. Conversely a uniformly
+flickering clip exceeds any absolute floor everywhere, and then no transition is a
+distinguishable cut; the clip is simply broken.
+
+The floor is **provisional and derived from synthetic clips only**. What has not been
+tested is a real generation with fast camera movement, or a cut between two genuinely
+similar shots — both narrow that 67x gap. Re-derive it before quoting a cut count.
+
+The payoff is that seam cost is measurable on *any* clip. `detect_cuts` found the
+seam of a 4.5+4.5 s concatenation at transition 23 of 47 without being told it
+existed, and scored it at 0.38. So a provider that chained internally without saying
+so is detected from the pixels, which no `was_chained` flag would reveal.
+
+### Two things the motion group deliberately does not carry
+
+`seam_consistency` is NaN for every natively generated clip. A column missing for
+most rows cannot be learned from, and filling it with 1.0 would assert a perfect seam
+where there is no seam. It stays a diagnostic.
+
+`duration_seconds` **would be a tier label in disguise.** The premium provider
+delivers 10 s natively and the research tier reaches the window by chaining two ~5 s
+clips, so in this corpus duration separates the tiers almost perfectly. A ranker given
+that column could score "premium" rather than "good", and the tier comparison the
+report wants would be circular. This is the same family of error as the split leak in
+§3: a feature that predicts the label through provenance rather than content.
+
+---
+
 ## Known limitations
 
 - **No real annotations exist yet.** Every accuracy above is either simulated or
@@ -354,7 +482,18 @@ budget, most of them one-hots with nothing to say.
 - **`OBSERVATIONS_PER_PARAMETER = 15` is a rule of thumb**, not a measurement of this
   task. It is deliberately stricter than the usual 10 because human preference labels
   are noisier than the outcomes that rule was written for.
-- **Video-stage prediction is untested.** `adml.featureset.video_features` exists and
-  is exercised by unit tests, but no videos have been generated, so the headline
-  image→video rank-agreement number (`adml.evaluate.stage_agreement`) has never been
-  computed on real data.
+- **Video-stage prediction is untested on generated video.** The motion group and
+  `score_video` now decode real MP4s, but only mock ones: no clip has been generated
+  by either tier, so the headline image→video rank-agreement number
+  (`adml.evaluate.stage_agreement`) has never been computed on real data.
+- **The research-tier video corpus is empty.** `notebooks/colab_video.ipynb` is
+  written and the provider, manifest contract and fingerprint round-trip are all
+  tested (`tests/test_prerendered.py`), but no GPU has run it. This is what stands
+  between the project and a video-stage evaluation — the paid tier buys about 28
+  clips in total, which is a demo, not a validation set.
+- **The cut-detection floor is calibrated on synthetic clips only** (§12). Real fast
+  camera movement, and cuts between similar shots, both narrow the measured gap.
+- **No model has beaten chance yet.** The only model saved so far scored 0.496 on 24
+  mock sets with simulated judges. That is the expected outcome at this corpus size
+  and with these labels (§6, §10), and it is why the model is marked a stub — but it
+  means the serving path has been exercised, not validated.

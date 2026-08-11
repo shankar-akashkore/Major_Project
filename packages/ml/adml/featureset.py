@@ -85,8 +85,9 @@ _register(FeatureGroup.PHOTOMETRIC, "luminance", "contrast", "colorfulness", "sh
 _register(FeatureGroup.COMPOSITION, "thirds_alignment", "subject_scale", "border_uniformity")
 _register(FeatureGroup.SALIENCE, "focal_concentration", "safe_area_share")
 _register(FeatureGroup.PALETTE, "palette_adherence", "palette_delta_e")
-_register(FeatureGroup.MOTION, "motion_energy_mean", "motion_energy_std", "temporal_consistency")
-_register(FeatureGroup.MOTION, "hook_strength")
+_register(FeatureGroup.MOTION, "motion_energy_mean", "motion_energy_std", "motion_energy_peak")
+_register(FeatureGroup.MOTION, "motion_trend", "temporal_consistency", "hook_strength")
+_register(FeatureGroup.MOTION, "focal_persistence", "has_cut")
 
 #: Categorical axes expanded to one-hot columns.  Every level gets a column
 #: including the first: with the intercept-free pairwise loss below there is no
@@ -137,20 +138,41 @@ def image_features(
     }
 
 
-def video_features(item: CorpusItem, data: bytes, fps: float = 24.0) -> dict[str, float]:
-    """Motion features, plus the image features of the middle frame.
+def video_features(
+    item: CorpusItem, data: bytes, palette_hex: Sequence[str] = ()
+) -> dict[str, float]:
+    """Motion features, plus the still features of the middle frame.
 
     The middle frame rather than the first: the first frame is the generated still
     that the image stage already scored, so measuring it again would make the two
     stages correlated by construction and flatter the headline agreement number.
+
+    Two things are deliberately *not* returned as features, even though
+    :class:`adml.video.ClipFeatures` measures both.
+
+    ``seam_consistency`` is NaN for any clip without a cut, which is every natively
+    generated one.  A column that is missing for most rows cannot be learned from,
+    and filling it with 1.0 would assert a perfect seam where there is no seam at
+    all.  It stays a diagnostic.
+
+    ``duration_seconds`` would be a **tier label in disguise**.  The premium
+    provider delivers 10 s natively and the research tier reaches the window by
+    chaining two ~5 s clips, so in this corpus duration separates the tiers almost
+    perfectly.  A ranker given that column could score "premium" rather than
+    "good", and the tier comparison the report wants to make would be circular.
     """
-    frames = F.load_frames(data)
-    if not frames:
+    from . import video as V
+
+    clip, motion = V.measure(data)
+    if clip.n_sampled < 2:
+        # A still is not a video. Returning partial features would put a row with
+        # no temporal information into the motion ablation.
         return {}
-    energies = F.motion_energy(frames)
-    mid = frames[len(frames) // 2]
+
+    mid = clip.frames[len(clip.frames) // 2]
     sal = F.saliency_map(mid)
     safe = item.platform.safe_area
+    palette_score, delta_e = F.palette_adherence(mid, list(palette_hex))
 
     return {
         "luminance": F.mean_luminance(mid),
@@ -162,12 +184,21 @@ def video_features(item: CorpusItem, data: bytes, fps: float = 24.0) -> dict[str
         "border_uniformity": F.border_uniformity(mid),
         "focal_concentration": F.focal_concentration(sal),
         "safe_area_share": F.region_saliency_share(sal, safe.top, safe.bottom),
-        "palette_adherence": 1.0,
-        "palette_delta_e": 0.0,
-        "motion_energy_mean": float(np.mean(energies)),
-        "motion_energy_std": float(np.std(energies)),
-        "temporal_consistency": F.temporal_consistency(frames),
-        "hook_strength": F.hook_strength(frames, fps=fps),
+        # Measured on the middle frame, by the same call :func:`image_features`
+        # makes. An earlier version hardcoded 1.0/0.0 here, which happened to agree
+        # with the no-palette default but would have kept disagreeing once a
+        # palette was threaded through — the two stages would then have been
+        # scoring adherence against different things while reporting one column.
+        "palette_adherence": palette_score,
+        "palette_delta_e": delta_e,
+        "motion_energy_mean": motion.motion_energy_mean,
+        "motion_energy_std": motion.motion_energy_std,
+        "motion_energy_peak": motion.motion_energy_peak,
+        "motion_trend": motion.motion_trend,
+        "temporal_consistency": motion.temporal_consistency,
+        "hook_strength": motion.hook_strength,
+        "focal_persistence": motion.focal_persistence,
+        "has_cut": float(motion.has_seam),
     }
 
 

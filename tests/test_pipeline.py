@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import pytest
 from adml import features as F
+from adml import video as V
 from adschema import (
     MAX_DURATION_S,
     MIN_DURATION_S,
@@ -46,12 +47,43 @@ async def test_all_eight_stages_report_completion(pipeline, make_request):
 async def test_delivered_videos_are_in_the_committed_duration_window(
     pipeline, make_request, storage
 ):
-    """Duration is read back from the file, not taken from the provider's word."""
+    """Duration is read back from the file, not taken from the provider's word.
+
+    Probed through :mod:`adml.video`, which is the point: this test previously used
+    a PIL helper and so could only ever have passed on a GIF. It was green while
+    the pipeline was structurally unable to read the MP4s the paid provider returns.
+    """
     record = await pipeline.run(make_request(duration_seconds=9.0))
     for video in record.result.videos:
-        actual = F.frame_durations_seconds(storage.get_bytes(video.asset.key))
-        assert MIN_DURATION_S <= actual <= MAX_DURATION_S, f"{actual}s outside the window"
-        assert abs(actual - video.duration_seconds) < 0.05, "reported duration disagrees with file"
+        check = V.verify_duration(
+            storage.get_bytes(video.asset.key),
+            video.duration_seconds,
+            min_seconds=MIN_DURATION_S,
+            max_seconds=MAX_DURATION_S,
+        )
+        assert check.in_window, check.summary()
+        assert check.matches_claim, check.summary()
+
+
+async def test_the_mock_provider_writes_a_container_the_scorer_can_read(
+    pipeline, make_request, storage
+):
+    """The mock's output must travel the same decode path as a paid clip.
+
+    Where ffmpeg is available that means a real MP4. This is the guard on the
+    defect this phase found: while the mock wrote GIF and the scorer used PIL, the
+    entire video half of the pipeline was untested against the format every real
+    provider returns.
+    """
+    record = await pipeline.run(make_request())
+    for video in record.result.videos:
+        data = storage.get_bytes(video.asset.key)
+        container = V.container_of(data)
+        assert container == ("mp4" if V.FFMPEG else "gif"), container
+        # And it decodes to real frames with real motion, not to an empty list.
+        clip, motion = V.measure(data)
+        assert clip.n_sampled >= 2
+        assert motion.motion_energy_mean > 0.0
 
 
 @pytest.mark.parametrize("duration", [8.0, 9.0, 10.0])
@@ -59,7 +91,7 @@ async def test_duration_window_endpoints(pipeline, make_request, storage, durati
     record = await pipeline.run(make_request(duration_seconds=duration))
     assert record.state is JobState.COMPLETED
     for video in record.result.videos:
-        actual = F.frame_durations_seconds(storage.get_bytes(video.asset.key))
+        actual = V.probe(storage.get_bytes(video.asset.key)).duration_seconds
         assert abs(actual - duration) < 0.05
 
 

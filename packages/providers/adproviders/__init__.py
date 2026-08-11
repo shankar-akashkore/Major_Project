@@ -26,6 +26,12 @@ from .mock import (
     mock_product_asset,
     mock_reference_asset,
 )
+from .prerendered import (
+    ClipEntry,
+    ClipManifest,
+    PrerenderedVideoProvider,
+    clip_fingerprint,
+)
 from .pricing import (
     IMAGE_PRICES,
     LLM_PRICES,
@@ -75,6 +81,11 @@ __all__ = [
     "FalClient",
     "FalImageProvider",
     "FalVideoProvider",
+    # research tier
+    "PrerenderedVideoProvider",
+    "ClipManifest",
+    "ClipEntry",
+    "clip_fingerprint",
     # wiring
     "get_image_provider",
     "get_video_provider",

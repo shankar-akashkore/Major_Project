@@ -50,11 +50,25 @@ class Settings(BaseSettings):
     video_provider: str = "mock"
     llm_provider: str = "mock"
 
+    # --- Research tier ---
+    #: Where the Colab notebook's clip output was unzipped. Read by
+    #: `PrerenderedVideoProvider`, which serves free clips generated off-machine.
+    #: Defaults under the storage root so the usual case needs no configuration.
+    clip_manifest: Path | None = Field(
+        default=None,
+        description="Directory holding clips.json from notebooks/colab_video.ipynb. "
+        "Defaults to <storage_root>/research.",
+    )
+
     # --- Credentials ---
     # One key covers both live providers: fal hosts Seedream for multi-reference
     # composition and Kling for image-to-video, so there is one account to fund
     # and one statement to reconcile against the ledger.
     fal_api_key: str = Field(default="", description="fal.ai API key. Blank keeps live mode off.")
+
+    @property
+    def clip_manifest_dir(self) -> Path:
+        return self.clip_manifest or (self.storage_root / "research")
 
     @property
     def is_live(self) -> bool:

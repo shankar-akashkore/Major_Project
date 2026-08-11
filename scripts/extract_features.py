@@ -118,7 +118,19 @@ async def _run(args: argparse.Namespace) -> int:
                     "kind": kind.value,
                     "storage_root": str(settings.storage_root),
                     "items": [
-                        {"item_id": it.item_id, "key": it.asset.key, "set_id": it.set_id}
+                        {
+                            "item_id": it.item_id,
+                            "key": it.asset.key,
+                            "set_id": it.set_id,
+                            "is_decoy": it.is_decoy,
+                            # For notebooks/colab_video.ipynb. `motion` is the design
+                            # axis, not the prompt text: the clip fingerprint is built
+                            # on the intent enum because LLM-expanded prompt text is
+                            # not reproducible between runs and would miss on every
+                            # lookup. See adproviders.prerendered.clip_fingerprint.
+                            "motion": it.motion.value if it.motion else None,
+                            "seed": it.seed,
+                        }
                         for it in items
                     ],
                 },
@@ -133,6 +145,8 @@ async def _run(args: argparse.Namespace) -> int:
         print("     and the manifest, run it, download the npz files")
         print("  3. drop them in fixtures/corpus/embeddings/ and train:")
         print("       .venv/bin/python scripts/train_predictor.py")
+        print("\nThe same zip and manifest drive the free video corpus:")
+        print("     notebooks/colab_video.ipynb  ->  fixtures/research/  ($0 on Colab)")
 
     budget_note = FS.parameter_budget(1200)
     print(

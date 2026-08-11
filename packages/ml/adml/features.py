@@ -586,24 +586,55 @@ def motion_energy(frames: list[np.ndarray]) -> list[float]:
     return [float(np.abs(grays[i + 1] - grays[i]).mean()) for i in range(len(grays) - 1)]
 
 
+#: Grayscale standard deviation below which a frame carries no spatial structure
+#: to correlate against.
+_FLAT_FRAME_STD = 1e-6
+
+
+def frame_similarity(a: np.ndarray, b: np.ndarray) -> float:
+    """Similarity of two frames in 0-1, as grayscale.
+
+    Correlation where correlation is defined, and intensity agreement where it is
+    not.  That second branch is not a technicality — it was a real bug.  Pearson
+    correlation is undefined for a constant vector, and the obvious guard ("both
+    frames are flat, so call them identical") is wrong: navy and orange are both
+    flat and nothing alike.  Measured on a deliberately concatenated clip, a
+    navy-to-orange hard cut scored 1.000 consistency while the frames differed by
+    0.62 in mean intensity.
+
+    A flat frame is not an edge case in ad creative either.  Clips routinely end
+    on a solid-colour end card behind a logo, and a fade to white or black passes
+    through frames with no structure at all.
+
+    So: when either frame is flat, fall back to ``1 - mean |a - b|``, which is 1.0
+    for two identical flat frames and near 0 for two very different ones.  When
+    both have structure, use correlation, which is invariant to overall exposure
+    — a clip that brightens is not a clip that fell apart.
+    """
+    ga = (_gray(a) / 255.0).ravel()
+    gb = (_gray(b) / 255.0).ravel()
+    if ga.shape != gb.shape:
+        return 0.0
+    if ga.std() < _FLAT_FRAME_STD or gb.std() < _FLAT_FRAME_STD:
+        return float(np.clip(1.0 - np.abs(ga - gb).mean(), 0.0, 1.0))
+    value = float(np.corrcoef(ga, gb)[0, 1])
+    return 0.0 if math.isnan(value) else float(np.clip(value, 0.0, 1.0))
+
+
 def temporal_consistency(frames: list[np.ndarray]) -> float:
-    """Mean frame-to-frame correlation.
+    """Mean frame-to-frame similarity.
 
     Low values mean the content is not holding together between frames — the
     identity-drift and flicker failure mode that makes generated video unusable.
+
+    A single frame returns NaN rather than 1.0.  A still has no temporal
+    behaviour, and scoring it as perfectly consistent would award full marks on a
+    measurement that was never taken.
     """
     if len(frames) < 2:
-        return 1.0
-    grays = [(_gray(f) / 255.0).ravel() for f in frames]
-    cors = []
-    for i in range(len(grays) - 1):
-        a, b = grays[i], grays[i + 1]
-        if a.shape != b.shape:
-            return 0.0
-        sa, sb = a.std(), b.std()
-        cors.append(1.0 if sa < 1e-6 and sb < 1e-6 else float(np.corrcoef(a, b)[0, 1]))
-    vals = [c for c in cors if not math.isnan(c)]
-    return float(np.clip(np.mean(vals), 0.0, 1.0)) if vals else 0.0
+        return float("nan")
+    values = [frame_similarity(frames[i], frames[i + 1]) for i in range(len(frames) - 1)]
+    return float(np.clip(np.mean(values), 0.0, 1.0)) if values else 0.0
 
 
 def hook_strength(frames: list[np.ndarray], fps: float, window_s: float = 1.0) -> float:
@@ -626,12 +657,16 @@ def hook_strength(frames: list[np.ndarray], fps: float, window_s: float = 1.0) -
 
 
 def seam_consistency(frames: list[np.ndarray], seam_index: int) -> float:
-    """Temporal consistency across a concatenation seam.
+    """Temporal consistency across a concatenation seam at a *known* index.
 
     Only meaningful for chained clips.  Reported rather than smoothed over,
     because if 8-10 s has to be reached by stitching two ~5 s generations, the
     quality cost of that decision belongs in the write-up.
+
+    NaN for an out-of-range index — there is no seam there to measure, which is a
+    different statement from "the seam is perfect".  When the seam's location is
+    not known in advance, :func:`adml.video.detect_cuts` finds it from the pixels.
     """
     if not (0 < seam_index < len(frames)):
-        return 1.0
+        return float("nan")
     return temporal_consistency(frames[seam_index - 1 : seam_index + 1])

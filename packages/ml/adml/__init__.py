@@ -20,6 +20,13 @@ Split by hardware requirement on purpose:
 * :mod:`adml.embeddings` is the boundary to the parts that need torch. The frozen
   encoders (SigLIP, DINOv2, ArcFace, LAION aesthetic) run in Colab and cross into
   this package as an npz file. Nothing here imports torch.
+* :mod:`adml.video` is the boundary to ffmpeg, and the only place a clip becomes
+  frames. It exists because everything video previously decoded through PIL, which
+  cannot open an MP4 — so the video half of the pipeline would have failed on the
+  first real generation, after paying for it.
+* :mod:`adml.serving` persists a fitted transform and head together and scores one
+  candidate set with them. Without it the trained model could not reach the
+  product: the evaluation and the pipeline were scoring with different things.
 """
 
 from . import (
@@ -31,7 +38,9 @@ from . import (
     pairs,
     predictor,
     ranking,
+    serving,
     split,
+    video,
 )
 
 __all__ = [
@@ -43,5 +52,7 @@ __all__ = [
     "pairs",
     "predictor",
     "ranking",
+    "serving",
     "split",
+    "video",
 ]

@@ -13,8 +13,14 @@ developed against, so they earn a few properties on purpose:
   temporal variance) therefore have real signal to chew on, which means the
   scorers can be developed and tested long before any money is spent.
 
-Video is written as an animated GIF rather than MP4 because ffmpeg is not
-installed on this machine.  Frame timings are real, so duration assertions hold.
+Video is written as **H.264 MP4 when ffmpeg is available**, and falls back to an
+animated GIF when it is not.  That ordering matters more than it looks: the whole
+video-scoring half of the pipeline decodes with ffmpeg, and while the mock only
+ever produced GIFs, none of that path was exercised by a single test.  PIL cannot
+open an MP4, so the first paid Kling clip would have failed in stage 7 after being
+billed.  Free mock runs now travel the same decode path as paid ones.
+
+Frame timings are real in both containers, so duration assertions hold either way.
 """
 
 from __future__ import annotations
@@ -24,6 +30,7 @@ import math
 import random
 import time
 
+from adml import video as V
 from adschema import AspectRatio, AssetRef, CameraAngle, Composition, Lighting, MotionIntent, Tier
 from PIL import Image, ImageDraw, ImageFilter
 
@@ -281,31 +288,53 @@ class MockImageProvider(ImageProvider):
 
 
 class MockVideoProvider(VideoProvider):
-    """Animates the placeholder frame as a GIF with real frame timings.
+    """Animates the placeholder frame with real frame timings.
 
-    GIF rather than MP4 because ffmpeg is absent on this machine.  The duration
-    encoded in the file is the requested duration, so the pipeline's "every
-    delivered video is 8-10 s" check tests something real.
+    MP4 when ffmpeg is present, GIF otherwise.  The duration encoded in the file
+    is the requested duration in both cases, so the pipeline's "every delivered
+    video is 8-10 s" check tests something real — and because it now reads the
+    duration back out of a container ffmpeg wrote, it tests the same code path a
+    Kling clip will take.
+
+    ``force_gif`` exists for the one test that has to cover the no-ffmpeg fallback
+    on a machine where ffmpeg *is* installed.
     """
 
     name = "mock"
     model = "mock"
 
-    def __init__(self, storage: Storage):
+    def __init__(self, storage: Storage, *, force_gif: bool = False):
         self.storage = storage
+        self.force_gif = force_gif
+
+    @property
+    def writes_mp4(self) -> bool:
+        return V.FFMPEG is not None and not self.force_gif
 
     async def generate(self, request: VideoGenRequest) -> VideoGenResult:
         started = time.perf_counter()
         dp = request.brief.design_point
         size = request.aspect_ratio.pixel_size(MOCK_LONG_EDGE // 2)
-        # Quantise the frame delay to what GIF can actually represent, then derive
-        # the frame count from it, so the duration we report is the duration the
-        # file really has.
-        frame_ms = max(
-            GIF_DELAY_QUANTUM_MS,
-            round(1000 / MOCK_FPS / GIF_DELAY_QUANTUM_MS) * GIF_DELAY_QUANTUM_MS,
-        )
-        n_frames = max(2, round(request.duration_seconds * 1000 / frame_ms))
+
+        if self.writes_mp4:
+            # H.264 takes an exact frame rate, so the frame count follows directly
+            # from the duration with no quantisation to work around.
+            fps = MOCK_FPS
+            n_frames = max(2, round(request.duration_seconds * fps))
+            duration = n_frames / fps
+        else:
+            # GIF stores frame delays in centiseconds. Quantise the delay to what
+            # the format can represent, then derive the frame count from *that*, so
+            # the duration reported is the duration the file really has. At 6 fps
+            # an unquantised 167 ms delay silently became 160 ms and the reported
+            # duration drifted from the real one.
+            frame_ms = max(
+                GIF_DELAY_QUANTUM_MS,
+                round(1000 / MOCK_FPS / GIF_DELAY_QUANTUM_MS) * GIF_DELAY_QUANTUM_MS,
+            )
+            fps = 1000 / frame_ms
+            n_frames = max(2, round(request.duration_seconds * 1000 / frame_ms))
+            duration = n_frames * frame_ms / 1000
 
         frames = [
             _render_frame(
@@ -322,20 +351,31 @@ class MockVideoProvider(VideoProvider):
             for i in range(n_frames)
         ]
 
-        buf = io.BytesIO()
-        frames[0].save(
-            buf,
-            format="GIF",
-            save_all=True,
-            append_images=frames[1:],
-            duration=frame_ms,
-            loop=0,
-            optimize=True,
-        )
         key = request.output_key
-        if key.endswith(".mp4"):
-            key = key[: -len(".mp4")] + ".gif"
-        asset = self.storage.put_bytes(key, buf.getvalue(), "image/gif")
+        if self.writes_mp4:
+            import numpy as np
+
+            data = V.encode_mp4([np.asarray(f) for f in frames], fps=fps)
+            mime = "video/mp4"
+            if not key.endswith(".mp4"):
+                key = f"{key.rsplit('.', 1)[0]}.mp4"
+        else:
+            buf = io.BytesIO()
+            frames[0].save(
+                buf,
+                format="GIF",
+                save_all=True,
+                append_images=frames[1:],
+                duration=round(1000 / fps),
+                loop=0,
+                optimize=True,
+            )
+            data = buf.getvalue()
+            mime = "image/gif"
+            if key.endswith(".mp4"):
+                key = key[: -len(".mp4")] + ".gif"
+
+        asset = self.storage.put_bytes(key, data, mime)
         asset.width, asset.height = size
 
         return VideoGenResult(
@@ -345,8 +385,8 @@ class MockVideoProvider(VideoProvider):
             cost_usd=0.0,
             latency_ms=round((time.perf_counter() - started) * 1000),
             seed=request.seed,
-            duration_seconds=round(n_frames * frame_ms / 1000, 3),
-            fps=MOCK_FPS,
+            duration_seconds=round(duration, 3),
+            fps=round(fps),
             was_chained=False,
         )
 

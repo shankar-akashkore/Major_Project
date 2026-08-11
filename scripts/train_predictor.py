@@ -50,6 +50,7 @@ from adml import embeddings as EM  # noqa: E402
 from adml import evaluate as EV  # noqa: E402
 from adml import featureset as FS  # noqa: E402
 from adml import predictor as PR  # noqa: E402
+from adml import serving as SERVE  # noqa: E402
 from adml.split import Observation, cross_validate_folds, split_report  # noqa: E402
 from adschema import Choice, ItemKind, PairKind  # noqa: E402
 
@@ -463,10 +464,120 @@ async def _run(args: argparse.Namespace) -> int:
                 seed=args.seed,
             )
 
+    if args.save:
+        _save_for_serving(
+            table,
+            observations,
+            set_of,
+            trained=trained,
+            ceiling=best_ceiling,
+            config=config,
+            embedding_dim=args.embedding_dim,
+            path=Path(args.save_to),
+        )
+
     print("\n" + "=" * 78)
     if not table.is_real:
         print("Reminder: stand-in embeddings. Not a result.")
     return 0
+
+
+def _save_for_serving(
+    table: FS.FeatureTable,
+    observations: list[Observation],
+    set_of: dict[str, str],
+    *,
+    trained: EV.Evaluation | None,
+    ceiling: float,
+    config: PR.TrainConfig,
+    embedding_dim: int,
+    path: Path,
+) -> None:
+    """Refit on *all* the labels and write the model the pipeline will serve.
+
+    Deliberately a separate fit from the cross-validation above.  Each fold's model
+    saw only that fold's training rows, so none of them is the best available model
+    — and the fold models' scores are not even on a common scale, since the pairwise
+    objective fixes no origin.  The served model is refitted on everything, and the
+    accuracy stamped on its card is the *cross-validated* figure, which is the only
+    honest estimate of how it will do on candidates it has not seen.
+    """
+    print("\n5. SAVED MODEL")
+    print("-" * 78)
+
+    items = list(table.item_ids)
+    pipeline = FS.FeaturePipeline.fit(table, items, embedding_dim=embedding_dim)
+    x = pipeline.transform(table, items)
+    row_of = {item: i for i, item in enumerate(items)}
+    pairs = PR.encode(observations, row_of)
+    if len(pairs) == 0:
+        print("  nothing to fit on — no observation maps onto a feature row.")
+        return
+
+    # The penalty is still chosen by inner cross-validation over sets, exactly as in
+    # each outer fold. There is no outer test set left to peek at here, but choosing
+    # l2 by training loss would pick the weakest penalty every time.
+    inner_set_of = {i: set_of[i] for i in items if i in set_of}
+    inner_folds = [
+        (PR.encode(f.train, row_of), PR.encode(f.test, row_of))
+        for f in cross_validate_folds(observations, inner_set_of, k=3, seed=config.seed + 1)
+    ]
+    if not any(len(a) and len(b) for a, b in inner_folds):
+        print("  not enough sets to choose a penalty by inner cross-validation; not saving.")
+        return
+
+    ranker, selection = PR.fit_with_selection(
+        x, pairs, inner_folds, base=config, names=pipeline.kept_names()
+    )
+    card = SERVE.build_card(
+        pipeline=pipeline,
+        ranker=ranker,
+        n_train_observations=len(pairs),
+        holdout_accuracy=trained.accuracy if trained is not None else float("nan"),
+        ceiling_accuracy=ceiling,
+        # The interval's lower bound, so the card can answer "does this beat a coin
+        # flip" rather than leaving the reader to guess from a point estimate.
+        holdout_ci_low=trained.ci()[0] if trained is not None else float("nan"),
+        notes=(
+            "Refit on every labelled comparison. The accuracy on this card is the "
+            f"cross-validated figure from section 3, not this fit's training accuracy. "
+            f"Penalty l2={selection.best.l2:g} chosen by inner cross-validation."
+        ),
+    )
+    written = SERVE.save_model(SERVE.ServedModel(pipeline=pipeline, ranker=ranker, card=card), path)
+    print(f"  wrote {written}  ({written.stat().st_size / 1024:.1f} kB)")
+    print(f"  {card.summary()}")
+    if card.is_stub:
+        if not card.is_real_features:
+            why = "the features are stand-ins, not real encoder output"
+        elif not np.isfinite(card.holdout_accuracy):
+            why = "no held-out accuracy was measured"
+        else:
+            why = (
+                f"held-out accuracy did not resolve above chance (CI low {card.holdout_ci_low:.3f})"
+            )
+        print(f"  Marked as a stub — {why}.")
+        print("  Every ranking it serves will say so.")
+
+    # The serving path computes numpy features only — there is no torch on the
+    # laptop — so a model fitted with embedding blocks cannot be served by the
+    # pipeline at all. Said here rather than discovered as a per-job warning.
+    needs = sorted(
+        {
+            g.value
+            for g in pipeline.kept_groups()
+            if g in (FS.FeatureGroup.EMBEDDING, FS.FeatureGroup.AESTHETIC, FS.FeatureGroup.IDENTITY)
+        }
+    )
+    if needs:
+        print(
+            f"  NOTE: this model needs the {', '.join(needs)} group(s), which the pipeline\n"
+            "  cannot compute at serving time (no torch on this machine). It is the model\n"
+            "  for the evaluation, and the pipeline will fall back to the heuristic with a\n"
+            "  warning. For a servable model, train without embedding blocks."
+        )
+    else:
+        print("  The pipeline picks this up automatically from fixtures/models/ranker.npz.")
 
 
 def main() -> int:
@@ -492,6 +603,13 @@ def main() -> int:
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--quick", action="store_true", help="fewer steps, for iterating")
     parser.add_argument("--no-ablation", action="store_true")
+    parser.add_argument(
+        "--save",
+        action="store_true",
+        help="refit on all the labels and write the model the pipeline serves. The "
+        "accuracy stamped on it is the cross-validated figure, not this fit's.",
+    )
+    parser.add_argument("--save-to", default=str(ROOT / SERVE.DEFAULT_MODEL_PATH))
     args = parser.parse_args()
     return asyncio.run(_run(args))
 

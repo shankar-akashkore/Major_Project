@@ -18,8 +18,11 @@ moving it behind ARQ later is a matter of calling ``run_job`` from a task.
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from datetime import UTC, datetime
 
+from adml import video as V
+from adml.serving import ServedModel
 from adproviders import (
     BudgetExceeded,
     CostGovernor,
@@ -33,6 +36,8 @@ from adproviders import (
     estimate_job_cost,
 )
 from adschema import (
+    MAX_DURATION_S,
+    MIN_DURATION_S,
     AdJobRequest,
     GateVerdict,
     ImageCandidate,
@@ -47,7 +52,7 @@ from adschema import (
 from .briefs import compile_briefs
 from .gate import evaluate_image, stricter_prompt
 from .intake import preprocess
-from .scoring import rank_videos, score_image, score_video
+from .scoring import load_ranker, rank_videos, score_image_set, score_video
 
 #: Called with each progress event.  The API turns this into an SSE stream.
 ProgressHook = Callable[[StageEvent], Awaitable[None]] | None
@@ -65,6 +70,16 @@ class NoViableCandidates(RuntimeError):
     """Every candidate failed the quality gate, so there is nothing to animate."""
 
 
+@dataclass(frozen=True)
+class _Delivered:
+    """What probing a delivered clip found, as distinct from what was ordered."""
+
+    cut_count: int
+    seam_consistency: float
+    in_window: bool
+    probe: V.ClipProbe
+
+
 class Pipeline:
     def __init__(
         self,
@@ -75,6 +90,7 @@ class Pipeline:
         video_provider: VideoProvider,
         llm_provider: LLMProvider,
         on_progress: ProgressHook = None,
+        ranker: ServedModel | None = None,
     ):
         self.storage = storage
         self.governor = governor
@@ -82,6 +98,11 @@ class Pipeline:
         self.videos = video_provider
         self.llm = llm_provider
         self.on_progress = on_progress
+        # Loaded once per pipeline rather than per job: reading a few kilobytes of
+        # npz is cheap, but doing it inside every job would make a mid-run retrain
+        # change the model between two jobs of the same batch, and the evaluation
+        # could not say which model produced which ranking.
+        self.ranker = ranker if ranker is not None else load_ranker()
 
     # --- Progress -----------------------------------------------------------
 
@@ -356,9 +377,38 @@ class Pipeline:
         await self._emit(
             record, Stage.IMAGE_RANK, "started", "predicting performance from the still frames"
         )
-        for candidate in result.images:
-            if candidate.passed_gate:
-                candidate.score = score_image(candidate, record.request, self.storage)
+        promote = [c for c in result.images if c.passed_gate]
+
+        # Scored as a set, not one at a time. The trained ranker's output is a
+        # position within the compared set — the pairwise objective fixes no origin
+        # — so there is no such thing as scoring one candidate alone.
+        scored = score_image_set(promote, record.request, self.storage, model=self.ranker)
+        for candidate in promote:
+            candidate.score = scored.breakdowns.get(candidate.index)
+
+        if scored.fallback_reason is not None:
+            # A configured model that could not be used is a warning, not a silent
+            # downgrade: the ranking is still produced, by the baseline, and the
+            # write-up needs to know which one it was.
+            await self._emit(
+                record,
+                Stage.IMAGE_RANK,
+                "warning",
+                f"fell back to the heuristic baseline — {scored.fallback_reason}",
+                0.4,
+            )
+        elif self.ranker is not None:
+            await self._emit(
+                record,
+                Stage.IMAGE_RANK,
+                "progress",
+                f"scored by {self.ranker.card.summary()}",
+                0.5,
+            )
+        else:
+            await self._emit(
+                record, Stage.IMAGE_RANK, "progress", "scored by the heuristic baseline", 0.5
+            )
 
         order = result.image_stage_order
         await self._emit(
@@ -472,6 +522,19 @@ class Pipeline:
             result.videos.append(video)
             result.total_cost_usd += video.cost_usd
 
+            # Verify the delivered file, not the provider's claim about it. The
+            # project commits to 8-10 s output and the only trustworthy source for
+            # what a file contains is the file: providers snap durations to their
+            # own enums, and an encoder that drops trailing frames is invisible to
+            # a check that reads the JSON response instead of the bytes.
+            check = await self._verify_delivered(record, video)
+            if check is not None and check.cut_count:
+                # A cut in a clip that should be one continuous shot means it was
+                # chained — whether or not the provider said so. Recorded from the
+                # pixels so the seam's cost is measurable either way.
+                video.was_chained = True
+                video.seam_consistency = check.seam_consistency
+
             await self._emit(
                 record,
                 Stage.VIDEO_GEN,
@@ -481,6 +544,51 @@ class Pipeline:
             )
 
         await self._emit(record, Stage.VIDEO_GEN, "completed", f"{total} videos generated", 1.0)
+
+    async def _verify_delivered(self, record: JobRecord, video: VideoCandidate):
+        """Probe a delivered clip and report what the file really contains.
+
+        Advisory rather than fatal.  A clip that came back 7.9 s is a finding for
+        the write-up and a reason to distrust the provider's duration handling; it
+        is not a reason to throw away a generation that has already been paid for.
+        The verdict is emitted so it reaches the UI and the event log either way.
+        """
+        try:
+            data = self.storage.get_bytes(video.asset.key)
+            check = V.verify_duration(
+                data,
+                video.duration_seconds,
+                min_seconds=MIN_DURATION_S,
+                max_seconds=MAX_DURATION_S,
+            )
+            clip, motion = V.measure(data)
+        except (V.ClipDecodeError, FileNotFoundError, ValueError) as exc:
+            # Surfaced, not swallowed: an undecodable clip cannot be scored either,
+            # so the job will fail at the next stage and this says why.
+            await self._emit(
+                record,
+                Stage.VIDEO_GEN,
+                "progress",
+                f"candidate {video.source_image_index}: could not verify the delivered "
+                f"clip — {type(exc).__name__}: {exc}",
+            )
+            return None
+
+        # Record what the file says over what the provider said.
+        video.duration_seconds = check.measured_seconds
+        level = "progress" if check.in_window else "warning"
+        await self._emit(
+            record,
+            Stage.VIDEO_GEN,
+            level,
+            f"candidate {video.source_image_index}: {check.summary()}",
+        )
+        return _Delivered(
+            cut_count=motion.cut_count,
+            seam_consistency=motion.seam_consistency,
+            in_window=check.in_window,
+            probe=clip.probe,
+        )
 
     # --- Stage 7: final ranking --------------------------------------------
 
