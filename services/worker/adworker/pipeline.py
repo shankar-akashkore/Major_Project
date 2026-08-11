@@ -46,6 +46,7 @@ from adschema import (
 
 from .briefs import compile_briefs
 from .gate import evaluate_image, stricter_prompt
+from .intake import preprocess
 from .scoring import rank_videos, score_image, score_video
 
 #: Called with each progress event.  The API turns this into an SSE stream.
@@ -54,6 +55,10 @@ ProgressHook = Callable[[StageEvent], Awaitable[None]] | None
 
 class ConsentRefused(RuntimeError):
     """Intake refused the job because the rights attestation was incomplete."""
+
+
+class UnusableReference(RuntimeError):
+    """An upload cannot produce a usable ad, so the job is refused before any spend."""
 
 
 class NoViableCandidates(RuntimeError):
@@ -97,29 +102,73 @@ class Pipeline:
 
     # --- Stage 1: intake ----------------------------------------------------
 
-    async def _intake(self, record: JobRecord) -> None:
+    async def _intake(self, record: JobRecord, result: JobResult) -> None:
         request = record.request
         await self._emit(record, Stage.INTAKE, "started", "validating inputs and rights")
 
+        # Rights first. Everything after this reads the uploads' pixels, and there
+        # is no reason to process a likeness the user has not attested to.
         if not request.consent.is_valid:
             raise ConsentRefused(
                 "the human-model image needs an affirmative rights attestation "
                 "(model release held, and not a public figure) before generation can start"
             )
 
-        # Palette extraction from the product image happens here once the intake
-        # dependencies (rembg, colorthief) land in week 3. Until then a job without
-        # a palette simply scores palette adherence as neutral rather than blocking.
-        if not request.theme.palette:
+        report = preprocess(request, self.storage)
+        result.intake = report
+
+        blocking = report.blocking_reason
+        if blocking is not None:
+            raise UnusableReference(
+                f"refusing before any spend — {blocking}. "
+                "No generator can recover detail an upload does not contain."
+            )
+
+        await self._emit(
+            record,
+            Stage.INTAKE,
+            "progress",
+            f"product cutout: {report.cutout.detail}",
+            0.4,
+        )
+        await self._emit(record, Stage.INTAKE, "progress", f"face: {report.face.detail}", 0.6)
+
+        # The extracted palette is written back into the request rather than
+        # threaded separately, because the brief compiler, the gate and the scorer
+        # all read `request.theme.palette`. `palette_auto_extracted` keeps the
+        # record honest about the fact that the user did not supply it, and
+        # `IntakeReport.palette_source` records where it came from.
+        if report.palette and not request.theme.palette:
+            request.theme.palette = report.palette
+            request.theme.palette_auto_extracted = True
             await self._emit(
                 record,
                 Stage.INTAKE,
                 "progress",
-                "no brand palette supplied; palette adherence will not constrain this job",
-                0.5,
+                f"brand palette derived from the {report.palette_source.replace('-', ' ')}: "
+                + " ".join(report.palette),
+                0.8,
+            )
+        elif not request.theme.palette:
+            await self._emit(
+                record,
+                Stage.INTAKE,
+                "progress",
+                "no brand palette supplied or extractable; palette adherence will not "
+                "constrain this job",
+                0.8,
             )
 
-        await self._emit(record, Stage.INTAKE, "completed", "inputs accepted", 1.0)
+        for note in report.all_advisories:
+            await self._emit(record, Stage.INTAKE, "progress", f"note — {note}", 0.9)
+
+        await self._emit(
+            record,
+            Stage.INTAKE,
+            "completed",
+            f"{len(report.references)} reference(s) accepted",
+            1.0,
+        )
 
     # --- Stage 2: briefs ----------------------------------------------------
 
@@ -138,7 +187,12 @@ class Pipeline:
     # --- Stage 3 + 4: images with the gate in the retry loop ----------------
 
     async def _generate_one_image(
-        self, record: JobRecord, brief, attempt: int, prompt_override: str | None
+        self,
+        record: JobRecord,
+        result: JobResult,
+        brief,
+        attempt: int,
+        prompt_override: str | None,
     ) -> ImageCandidate:
         request = record.request
         seed = request.candidate_seed(brief.index)
@@ -151,7 +205,15 @@ class Pipeline:
             else brief.model_copy(update={"image_prompt": prompt_override})
         )
 
-        references = [request.human_model_image, request.product_image]
+        # The cutout when intake produced a trustworthy one, the original otherwise.
+        # A product on transparency holds its identity through multi-reference
+        # composition markedly better than one still attached to its backdrop.
+        product = (
+            result.intake.product_reference(request.product_image)
+            if result.intake is not None
+            else request.product_image
+        )
+        references = [request.human_model_image, product]
         if request.logo_image is not None:
             references.append(request.logo_image)
 
@@ -232,7 +294,9 @@ class Pipeline:
                     # so the UI can show what happened rather than silently dropping it.
                     break
 
-                candidate = await self._generate_one_image(record, brief, attempt, prompt_override)
+                candidate = await self._generate_one_image(
+                    record, result, brief, attempt, prompt_override
+                )
                 gate = evaluate_image(candidate, request, self.storage, attempt=attempt)
                 candidate.gate = gate
 
@@ -457,7 +521,7 @@ class Pipeline:
             # video stage has already paid for images that buy nothing.
             await self.governor.preflight(request.job_id, estimate)
 
-            await self._intake(record)
+            await self._intake(record, result)
             await self._briefs(record, result)
             await self._images_and_gate(record, result)
             await self._rank_images(record, result)
@@ -471,7 +535,7 @@ class Pipeline:
             record.state = JobState.REFUSED_OVER_BUDGET
             record.refusal_reason = str(exc)
             await self._emit(record, Stage.INTAKE, "failed", str(exc))
-        except (ConsentRefused, NoViableCandidates) as exc:
+        except (ConsentRefused, UnusableReference, NoViableCandidates) as exc:
             record.state = JobState.FAILED
             record.error = str(exc)
             await self._emit(record, record.current_stage or Stage.INTAKE, "failed", str(exc))

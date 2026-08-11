@@ -100,7 +100,7 @@ where nearly all the cost is.
 
 | Stage | What happens |
 |---|---|
-| 1 **intake** | Validate; consent + rights gate; palette extraction |
+| 1 **intake** | Consent + rights gate; reference validation; product cutout; palette extraction |
 | 2 **brief** | Design-space sampler picks 3 separated points; LLM expands each into a shot brief |
 | 3 **images** | 3 multi-reference compositions, one per brief, fixed seeds |
 | 4 **gate** | Hard pass/fail: palette ΔE, safe area, focal clarity, exposure, contrast |
@@ -124,6 +124,15 @@ all* (hard reject). The predictor answers *how well will it perform* (continuous
 score), and only ever runs on candidates that already passed. Expressing an
 unusable candidate as a low score would let it rank first on a bad day.
 
+**The brand palette is read from inside the product, not off the photograph.** The
+backdrop covers most of a product shot's pixels, so quantising the whole frame
+describes the backdrop. Intake cuts the product out first and reads dominant
+colours from inside the mask. Measured on a lifestyle fixture whose true product
+colours are known: the frame yields `#6f614b #cabba6 #e6e1d5 #2c3b54 #a15d4d` —
+four backdrop colours, product fourth — and the mask yields `#2b3a55 #f0ece2
+#c6a05c`, which is exactly the product's three colours. This matters downstream
+because that palette then constrains the quality gate.
+
 ---
 
 ## Honesty markers
@@ -142,6 +151,19 @@ ran. `GateResult.verified_identity` returns False until they land.
 Components that cannot be computed are `None` rather than invented —
 `prompt_alignment` needs CLIPScore. A null shows up as absent in the ablation
 table instead of quietly diluting a feature group's apparent contribution.
+
+Intake reports what it actually did. `CutoutReport.method` is `rembg`,
+`flood-fill` or `none`, and `accepted=False` says in prose that the generator saw
+the original photograph instead — a silent fallback would look identical in the
+output. `FaceReport.implemented=False` when no detector was installed, with `box`
+left `None` rather than guessed. `palette_source` distinguishes a palette read
+from inside the product mask from one read off the whole frame, because those are
+not equally trustworthy constraints.
+
+**Measurements are separated from blocking checks.** `ReferenceReport.checks`
+holds only what can refuse a job; `ReferenceReport.measurements` holds quantities
+that are real but whose thresholds are not yet calibrated against real uploads.
+`focus` currently sits in the second group — see below.
 
 ---
 
@@ -193,6 +215,40 @@ rather than threshold bugs:
 
 Re-run against real generations in week 6 before trusting these with money.
 
+### Intake thresholds
+
+```bash
+.venv/bin/python scripts/calibrate_intake.py
+```
+
+Because the fixtures are drawn from known geometry, the true product mask is
+known, so the flood-fill threshold is set from the segmentation's measured IoU
+rather than from how plausible its output looks.
+
+| Threshold | Value | Measured separation |
+|---|---|---|
+| `MIN_EDGE_PX` (blocking) | 256 | Pixel count needs no calibration to interpret |
+| `MIN_BORDER_UNIFORMITY` | 0.35 | Backdrops that flood correctly 0.498–1.000 → IoU 0.985; ones that do not 0.208–0.217 → IoU 0.25 |
+| `FLOOD_TOLERANCE_DE` | 12.0 | ΔE 8 leaves a gradient sweep at IoU 0.419; 12 lifts it to 0.985; 24 adds nothing |
+| `MIN_SHARPNESS` | 0.35 | **Advisory, not blocking** — see below |
+
+Two findings from this run:
+
+- **Global sharpness punishes shallow depth of field**, and a product shot with a
+  beautifully blurred background is the most common kind of good product
+  photograph. Sharpness is now measured on the sharpest few of 16 tiles, so the
+  question answered is "is anything in focus?" Bokeh fixtures went from failing to
+  scoring 0.961 while a genuinely blurred frame still scores 0.026.
+- **The focus threshold could not be honestly set from these fixtures.** Vector
+  drawings have hard edges and so carry far more Laplacian energy than photographic
+  detail: the usable class scored 0.961–1.000, a range real photographs do not
+  occupy. A threshold drawn from that separation looked safe and was not — a
+  flat-shaded synthetic portrait measures 0.108 and would have been refused. So
+  `focus` is measured and reported on every job and blocks nothing, and recording
+  it everywhere is what will make the week-6 calibration possible. Related known
+  weakness: Laplacian variance reads sensor grain as detail, so it measures
+  high-frequency energy rather than focus as such.
+
 ---
 
 ## Environment constraints
@@ -202,7 +258,8 @@ Verified on this machine, and they shaped the architecture:
 | Resource | Reality | Consequence |
 |---|---|---|
 | Apple M1, 8 GB RAM | No local diffusion | Generation via hosted APIs or Colab |
-| ~10 GB free disk | Won't fit torch + node_modules + media | **Free ≥40 GB before week 9.** Media in object storage; store embeddings, not files |
+| ~23 GB free disk | Won't fit torch + node_modules + media | **Free ≥40 GB before week 9.** Media in object storage; store embeddings, not files |
+| OpenCV 5.0 ships an empty `cv2/data/` | The bundled Haar cascade XMLs were dropped, and face detection is the only thing OpenCV is here for | Pinned to `>=4.10,<5`. Verified: 4.14.0 bundles 17 cascades, 5.0.0 bundles none |
 | No GPU | No local training | Colab free tier |
 | No ffmpeg | Needed for chaining, smart crop, audio mix | `brew install ffmpeg` before week 13. Mock video is animated GIF meanwhile, with real frame timings so duration checks hold |
 
@@ -216,10 +273,17 @@ Verified on this machine, and they shaped the architecture:
 - [ ] **Start collecting pairwise annotations by week 8.** This is the critical
       path — if it slips, the trained predictor has no labels and the research
       half of the project collapses.
-- [ ] Intake preprocessing: `rembg` product cutout, palette extraction, face
-      detection (week 3–4). The cutout matters more than it sounds: a clean
-      transparent PNG substantially improves product fidelity versus a cluttered
-      source photo.
+- [x] Intake preprocessing: product cutout, palette extraction, face detection,
+      reference validation (week 3–4). Cutout via `rembg` when installed, with a
+      flood-fill fallback that is only trusted when the backdrop measures flat
+      enough for it. Palette read from inside the product mask. Face detection via
+      OpenCV Haar, advisory only.
+- [ ] `pip install '.[intake]'` to enable `rembg` matting. Everything works
+      without it — the flood-fill fallback covers plain backdrops and declines
+      busy ones — but a trained matte handles lifestyle product photos, which the
+      fallback correctly refuses to touch.
+- [ ] Promote `focus` from measurement to blocking check once real uploads have
+      supplied an honest distribution (week 6).
 - [ ] Live image provider adapter + gate recalibration on real generations.
 - [ ] Colab: embedding extractors, Stage A pretrain, Stage B Bradley-Terry
       calibration, ablation tables.

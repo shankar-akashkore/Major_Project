@@ -17,7 +17,14 @@ from .base import (
 )
 from .governor import BudgetExceeded, CostGovernor, RetryBudgetExceeded
 from .ledger import InMemoryLedger, LedgerStore, SqlLedger
-from .mock import MockImageProvider, MockLLMProvider, MockVideoProvider, mock_reference_asset
+from .mock import (
+    MockImageProvider,
+    MockLLMProvider,
+    MockVideoProvider,
+    mock_portrait_asset,
+    mock_product_asset,
+    mock_reference_asset,
+)
 from .pricing import (
     IMAGE_PRICES,
     LLM_PRICES,
@@ -62,6 +69,8 @@ __all__ = [
     "MockVideoProvider",
     "MockLLMProvider",
     "mock_reference_asset",
+    "mock_portrait_asset",
+    "mock_product_asset",
     # wiring
     "get_image_provider",
     "get_video_provider",

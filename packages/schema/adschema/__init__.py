@@ -32,6 +32,7 @@ from .enums import (
     Tier,
     Vertical,
 )
+from .intake import CutoutReport, FaceReport, IntakeReport, ReferenceReport
 from .job import BudgetStatus, JobRecord, JobResult, SpendEntry, StageEvent
 from .request import (
     DEFAULT_CANDIDATE_COUNT,
@@ -81,6 +82,11 @@ __all__ = [
     "RankedCandidate",
     "ScoreBreakdown",
     "VideoCandidate",
+    # intake
+    "CutoutReport",
+    "FaceReport",
+    "IntakeReport",
+    "ReferenceReport",
     # job
     "BudgetStatus",
     "JobRecord",

@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 from .brief import BriefSet
 from .candidates import ImageCandidate, RankedCandidate, VideoCandidate
 from .enums import JobState, Stage
+from .intake import IntakeReport
 from .request import AdJobRequest
 
 
@@ -76,6 +77,11 @@ class JobResult(BaseModel):
     """Everything the pipeline produced for one job."""
 
     job_id: str
+    intake: IntakeReport | None = Field(
+        default=None,
+        description="What stage 1 made of the uploads: which were usable, where the "
+        "palette came from, whether a product cutout was produced.",
+    )
     briefs: BriefSet | None = None
     images: list[ImageCandidate] = Field(default_factory=list)
     videos: list[VideoCandidate] = Field(default_factory=list)

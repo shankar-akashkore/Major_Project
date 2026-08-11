@@ -52,6 +52,13 @@
   .rank .n { font-size:26px; font-weight:700; color:var(--accent); min-width:38px; }
   .rank video, .rank img.clip { width:150px; border-radius:6px; background:#000; display:block; }
   .why { font-size:13px; color:var(--muted); margin-top:5px; }
+  .swatch { display:inline-block; width:20px; height:20px; border-radius:4px;
+            border:1px solid var(--line); vertical-align:middle; margin:2px 5px 2px 0; }
+  /* Checkerboard, so a cutout's transparency is visible rather than reading as black. */
+  .card img.alpha { background-color:#9a9a9a;
+    background-image:linear-gradient(45deg,#0003 25%,transparent 25%,transparent 75%,#0003 75%),
+                     linear-gradient(45deg,#0003 25%,transparent 25%,transparent 75%,#0003 75%);
+    background-size:16px 16px; background-position:0 0,8px 8px; }
   h2 { font-size:15px; margin:0 0 12px; }
   .muted { color:var(--muted); font-size:13px; }
   .shift-up { color:var(--good); } .shift-down { color:var(--bad); }
@@ -186,7 +193,85 @@ async function render(jobId) {
   const letter = (i) => String.fromCharCode(65 + i);
   const briefs = r.briefs;
 
-  let html = `<div class="panel">
+  let html = '';
+
+  if (r.intake) {
+    const k = r.intake;
+    const esc = (s) => String(s).replace(/"/g, '&quot;');
+    const blockPill = (x) =>
+      `<span class="pill ${x.passed ? 'good' : 'bad'}" title="${esc(x.detail)}">${x.name} ${x.value.toFixed(x.value >= 10 ? 0 : 2)}</span>`;
+    // Measurements are reported but never block, so they never render as a failure —
+    // a red pill on something that cannot refuse a job would misrepresent it.
+    const measurePill = (x) =>
+      `<span class="pill ${x.passed ? '' : 'warn'}" title="${esc(x.detail)}">${x.name} ${x.value.toFixed(2)} · advisory</span>`;
+
+    html += `<div class="panel">
+      <h2>Stage 1 · intake</h2>
+      <div class="grid">`;
+
+    for (const ref of k.references) {
+      html += `<div class="card">
+        <img src="/media/${ref.asset.key}" alt="">
+        <div class="body">
+          <div class="name">${ref.role.replace(/_/g, ' ')}</div>
+          <div class="kv"><span>size</span><b>${ref.width}×${ref.height}</b></div>
+          <div style="margin-top:8px">
+            ${ref.checks.map(blockPill).join('')}
+            ${(ref.measurements || []).map(measurePill).join('')}
+          </div>
+          ${ref.advisories.map(a => `<div class="why">${a}</div>`).join('')}
+        </div></div>`;
+    }
+
+    const cut = k.cutout;
+    html += `<div class="card">
+      ${cut.accepted && cut.asset
+        ? `<img class="alpha" src="/media/${cut.asset.key}" alt="">`
+        : ''}
+      <div class="body">
+        <div class="name">product cutout</div>
+        <div class="kv"><span>method</span><b>${cut.method}</b></div>
+        <div class="kv"><span>kept</span><b>${cut.coverage === null ? '—' : pct(cut.coverage)}</b></div>
+        <div class="kv"><span>backdrop flatness</span><b>${cut.border_uniformity === null ? '—' : cut.border_uniformity.toFixed(2)}</b></div>
+        <div style="margin-top:8px">
+          <span class="pill ${cut.accepted ? 'good' : 'warn'}">${cut.accepted ? 'used as the product reference' : 'declined — original photo used'}</span>
+        </div>
+        <div class="why">${cut.detail}</div>
+      </div></div>`;
+
+    const face = k.face;
+    html += `<div class="card"><div class="body">
+      <div class="name">face detection</div>
+      <div class="kv"><span>detector</span><b>${face.detector}</b></div>
+      <div class="kv"><span>faces found</span><b>${face.faces_found}</b></div>
+      <div class="kv"><span>face area</span><b>${face.box_area_fraction === null ? '—' : pct(face.box_area_fraction)}</b></div>
+      <div style="margin-top:8px">
+        <span class="pill ${face.implemented ? (face.faces_found ? 'good' : 'warn') : 'warn'}">${face.implemented ? 'detector ran' : 'no detector available'}</span>
+      </div>
+      <div class="why">${face.detail}</div>
+    </div></div>`;
+
+    html += `</div>`;
+
+    html += `<div style="margin-top:14px">
+      <div class="kv" style="margin-bottom:6px">
+        <span>brand palette · source: ${k.palette_source.replace(/-/g, ' ')}</span>
+        <b>${k.palette.length} colour(s)</b>
+      </div>
+      <div>${k.palette.map((h, i) =>
+        `<span class="swatch" style="background:${h}" title="${h}${k.palette_weights[i] !== undefined ? ' · ' + pct(k.palette_weights[i]) + ' coverage' : ''}"></span>`
+      ).join('')}
+      <span class="muted" style="font-family:var(--mono)">${k.palette.join('  ')}</span></div>
+      ${k.palette_source === 'product-cutout'
+        ? `<div class="why">Read from inside the product mask, so the backdrop it was photographed against is excluded.</div>`
+        : k.palette_source === 'product-frame'
+        ? `<div class="why">Read from the whole product photo — no cutout was available, so these colours may include the background.</div>`
+        : ''}
+      ${k.advisories.map(a => `<div class="why">${a}</div>`).join('')}
+    </div></div>`;
+  }
+
+  html += `<div class="panel">
     <h2>Stage 3–5 · image candidates &amp; pre-video ranking</h2>
     <div class="muted" style="margin-bottom:12px">
       Sampler: ${briefs.sampler} · min pairwise design distance

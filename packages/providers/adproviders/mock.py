@@ -25,7 +25,7 @@ import random
 import time
 
 from adschema import AspectRatio, AssetRef, CameraAngle, Composition, Lighting, MotionIntent, Tier
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFilter
 
 from .base import (
     ImageGenRequest,
@@ -375,8 +375,192 @@ def mock_reference_asset(
         label="reference",
         rng_seed=seed,
     )
+    return _store_png(storage, key, frame)
+
+
+def _store_png(storage: Storage, key: str, frame: Image.Image) -> AssetRef:
     buf = io.BytesIO()
     frame.save(buf, format="PNG", optimize=True)
     asset = storage.put_bytes(key, buf.getvalue(), "image/png")
-    asset.width, asset.height = size
+    asset.width, asset.height = frame.size
     return asset
+
+
+# --- Role-specific synthetic uploads ---------------------------------------
+#
+# ``mock_reference_asset`` renders the same abstract composition for every role,
+# which is fine for the generation path and useless for intake: intake's job is to
+# cut a product away from its backdrop and find a face, and an abstract gradient
+# has neither.  These two produce uploads with the structure intake looks for, so
+# the cutout and face-detection paths are exercised by the default demo job rather
+# than only by whatever real photographs happen to be lying around.
+
+
+def mock_product_asset(
+    storage: Storage,
+    key: str,
+    aspect: AspectRatio = AspectRatio.SQUARE_1_1,
+    seed: int = 22,
+    backdrop: int = 245,
+) -> AssetRef:
+    """A product on a near-seamless studio sweep.
+
+    Flat backdrop on purpose: it is the case a flood-fill cutout can handle, so the
+    fallback path is reachable without ``rembg`` installed.
+    """
+    width, height = aspect.pixel_size(512)
+    rng = random.Random(seed)
+    img = Image.new("RGB", (width, height), (backdrop, backdrop, backdrop))
+    draw = ImageDraw.Draw(img)
+
+    body_w, body_h = round(width * 0.34), round(height * 0.55)
+    left, top = (width - body_w) // 2, round(height * 0.22)
+    navy = _hex_to_rgb(_FALLBACK_PALETTE[0])
+    accent = _hex_to_rgb(_FALLBACK_PALETTE[1])
+    cream = _hex_to_rgb(_FALLBACK_PALETTE[3])
+
+    draw.rounded_rectangle(
+        [left, top, left + body_w, top + body_h], radius=round(body_w * 0.16), fill=navy
+    )
+    label_pad = round(body_w * 0.13)
+    draw.rectangle(
+        [
+            left + label_pad,
+            top + round(body_h * 0.34),
+            left + body_w - label_pad,
+            top + round(body_h * 0.58),
+        ],
+        fill=cream,
+    )
+    cap_w = round(body_w * 0.42)
+    draw.ellipse(
+        [
+            left + (body_w - cap_w) // 2,
+            top - round(body_h * 0.06),
+            left + (body_w + cap_w) // 2,
+            top + round(body_h * 0.10),
+        ],
+        fill=accent,
+    )
+    # A faint contact shadow, so the backdrop is not perfectly synthetic-flat.
+    draw.ellipse(
+        [left - 8, top + body_h - 6, left + body_w + 8, top + body_h + 14],
+        fill=(backdrop - 18, backdrop - 18, backdrop - 16),
+    )
+    for _ in range(round(width * height * 0.0004)):
+        x, y = rng.randrange(width), rng.randrange(height)
+        shade = backdrop + rng.randint(-3, 3)
+        draw.point((x, y), fill=(shade, shade, shade))
+
+    return _store_png(storage, key, img)
+
+
+def mock_portrait_asset(
+    storage: Storage,
+    key: str,
+    aspect: AspectRatio = AspectRatio.PORTRAIT_4_5,
+    seed: int = 11,
+) -> AssetRef:
+    """A synthetic frontal portrait that a Haar cascade actually detects.
+
+    Verified to produce a detection rather than assumed to: the proportions here
+    (brow mass above the eyes, eye spacing, a mouth shadow below) are what the
+    frontal-face cascade responds to, and the slight blur matters — a cascade
+    trained on photographs does not fire on hard vector edges.
+
+    Two limits worth being explicit about, because this fixture is what several
+    tests stand on:
+
+    * It only just clears the detector.  Grain above about 4 levels loses it, where
+      a real photograph would be found comfortably.  Treat a detection here as
+      evidence the code path works, not that the detector is good.
+    * Its focus figure is close to meaningless.  Flat vector shading has almost no
+      high-frequency content, so :func:`adml.features.sharpness` reads it as soft,
+      and adding grain raises that number without adding any real detail.  That is
+      a property of Laplacian-variance sharpness, and it is why intake reports focus
+      as an advisory rather than blocking on it.
+    """
+    width, height = aspect.pixel_size(512)
+    img = Image.new("RGB", (width, height), (150, 150, 152))
+    draw = ImageDraw.Draw(img)
+
+    cx, cy = width // 2, round(height * 0.42)
+    fw, fh = round(width * 0.38), round(height * 0.30)
+    skin = (215, 190, 170)
+    hair = (90, 70, 60)
+
+    draw.ellipse([cx - fw, cy - fh, cx + fw, cy + fh], fill=hair)
+    draw.ellipse(
+        [cx - round(fw * 0.86), cy - round(fh * 0.30), cx + round(fw * 0.86), cy + fh], fill=skin
+    )
+    eye_dx, eye_dy = round(fw * 0.42), round(fh * 0.06)
+    eye_r = max(4, round(fw * 0.16))
+    for sign in (-1, 1):
+        draw.ellipse(
+            [
+                cx + sign * eye_dx - eye_r,
+                cy + eye_dy - round(eye_r * 0.7),
+                cx + sign * eye_dx + eye_r,
+                cy + eye_dy + round(eye_r * 0.7),
+            ],
+            fill=(45, 40, 40),
+        )
+    draw.polygon(
+        [
+            (cx, cy + round(fh * 0.18)),
+            (cx - round(fw * 0.12), cy + round(fh * 0.44)),
+            (cx + round(fw * 0.12), cy + round(fh * 0.44)),
+        ],
+        fill=(192, 167, 150),
+    )
+    draw.ellipse(
+        [
+            cx - round(fw * 0.30),
+            cy + round(fh * 0.56),
+            cx + round(fw * 0.30),
+            cy + round(fh * 0.76),
+        ],
+        fill=(140, 95, 90),
+    )
+    # Shoulders, so the frame reads as a portrait rather than a floating head.
+    draw.ellipse(
+        [cx - round(width * 0.46), cy + fh, cx + round(width * 0.46), height + round(height * 0.3)],
+        fill=_hex_to_rgb(_FALLBACK_PALETTE[0]),
+    )
+
+    img = img.filter(ImageFilter.GaussianBlur(1.5))
+    return _store_png(storage, key, _add_grain(img, seed=seed))
+
+
+#: Grain amplitude, in 8-bit levels, uniform so σ ≈ amplitude/√3.
+#:
+#: 3 gives σ ≈ 1.7, which is about a clean low-ISO sensor. It is chosen for detector
+#: margin, not for any metric it produces: measured on this fixture, the Haar
+#: cascade still finds the face at amplitudes 1-4 and loses it at 6, so 3 sits
+#: comfortably inside the working range. Worth knowing that a real photograph is
+#: not nearly this fragile — see :func:`mock_portrait_asset`.
+_GRAIN_AMPLITUDE = 3
+
+
+def _add_grain(img: Image.Image, seed: int) -> Image.Image:
+    """Add fine luminance noise, so a synthetic frame behaves like a photograph.
+
+    Flat vector shading is not merely unrealistic, it is unrepresentative in ways
+    that matter: contrast, colourfulness, saliency and sharpness all read a
+    hand-drawn region very differently from a photographed one, and a fixture that
+    stands in for an upload should not quietly flatter every feature that looks at
+    it.  A real photograph carries sensor noise and surface texture everywhere.
+    """
+    rng = random.Random(seed)
+    pixels = img.load()
+    width, height = img.size
+    for y in range(height):
+        for x in range(width):
+            r, g, b = pixels[x, y]
+            delta = rng.randint(-_GRAIN_AMPLITUDE, _GRAIN_AMPLITUDE)
+            pixels[x, y] = (
+                min(255, max(0, r + delta)),
+                min(255, max(0, g + delta)),
+                min(255, max(0, b + delta)),
+            )
+    return img

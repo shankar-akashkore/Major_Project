@@ -2,7 +2,8 @@
 
 from .briefs import compile_briefs
 from .gate import evaluate_image, stricter_prompt
-from .pipeline import ConsentRefused, NoViableCandidates, Pipeline
+from .intake import preprocess
+from .pipeline import ConsentRefused, NoViableCandidates, Pipeline, UnusableReference
 from .sampler import (
     describe_diversity,
     min_pairwise_distance,
@@ -14,6 +15,8 @@ __all__ = [
     "Pipeline",
     "ConsentRefused",
     "NoViableCandidates",
+    "UnusableReference",
+    "preprocess",
     "compile_briefs",
     "sample_design_points",
     "min_pairwise_distance",

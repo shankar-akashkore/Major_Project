@@ -25,6 +25,8 @@ dist/
 *.sqlite3
 fixtures/uploads/*
 fixtures/generations/*
+# Intake derivatives (product cutouts) — regenerated from the upload every run.
+fixtures/intake/*
 !fixtures/**/.gitkeep
 !fixtures/golden/**/*.json
 

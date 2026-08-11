@@ -69,6 +69,16 @@ def load_image(data: bytes) -> np.ndarray:
         return np.asarray(img.convert("RGB"))
 
 
+def load_rgba(data: bytes) -> np.ndarray:
+    """Decode to RGBA, preserving alpha.
+
+    Separate from :func:`load_image` because a product cutout's whole value is in
+    its alpha channel, and ``convert("RGB")`` silently composites it away.
+    """
+    with Image.open(io.BytesIO(data)) as img:
+        return np.asarray(img.convert("RGBA"))
+
+
 def load_frames(data: bytes, max_frames: int = 48) -> list[np.ndarray]:
     """Decode an animated file (GIF now, MP4 once ffmpeg lands) to RGB frames.
 
@@ -241,14 +251,37 @@ def subject_scale(sal: np.ndarray, threshold: float = 0.5) -> float:
 # --- Palette ---------------------------------------------------------------
 
 
-def dominant_colors(rgb: np.ndarray, k: int = 5) -> list[tuple[tuple[int, int, int], float]]:
+#: Pixels sampled when quantising a masked region.  128x128 is what the unmasked
+#: path thumbnails to, so this keeps the two paths comparably precise.
+_MASKED_QUANTIZE_SAMPLES = 16384
+
+
+def dominant_colors(
+    rgb: np.ndarray, k: int = 5, mask: np.ndarray | None = None
+) -> list[tuple[tuple[int, int, int], float]]:
     """Dominant colours as ``((r, g, b), weight)``, via PIL's adaptive palette.
 
     Cheaper and steadier than running k-means for every candidate, and the
     weights are what the palette score needs.
+
+    ``mask`` restricts the measurement to a region — used to read a product's own
+    colours from inside its cutout, so the backdrop it happened to be photographed
+    against does not end up in the brand palette.  Masked pixels are gathered into
+    a column image rather than thumbnailed, because resampling a masked region
+    would blend the excluded background back in at the edges.
     """
-    img = Image.fromarray(rgb).convert("RGB")
-    img.thumbnail((128, 128), Image.BILINEAR)
+    if mask is None:
+        img = Image.fromarray(rgb[..., :3]).convert("RGB")
+        img.thumbnail((128, 128), Image.BILINEAR)
+    else:
+        pixels = rgb[..., :3][mask]
+        if pixels.size == 0:
+            return []
+        if len(pixels) > _MASKED_QUANTIZE_SAMPLES:
+            picks = np.linspace(0, len(pixels) - 1, _MASKED_QUANTIZE_SAMPLES).astype(int)
+            pixels = pixels[picks]
+        img = Image.fromarray(pixels.reshape(-1, 1, 3).astype(np.uint8), "RGB")
+
     quant = img.quantize(colors=k, method=Image.Quantize.FASTOCTREE)
     palette = quant.getpalette() or []
     counts = quant.getcolors() or []
@@ -339,6 +372,207 @@ def palette_adherence(rgb: np.ndarray, palette_hex: list[str]) -> tuple[float, f
     mean_de = float((nearest * weights).sum() / weights.sum())
     score = max(0.0, 1.0 - mean_de / PALETTE_DELTA_E_CEILING)
     return float(score), mean_de
+
+
+# --- Intake measurements ---------------------------------------------------
+#
+# These run once per upload, before any money is spent.  Their job is to catch
+# inputs that cannot produce a usable ad no matter how good the generator is: a
+# thumbnail-sized product photo, a motion-blurred phone snap, a "cutout" that
+# removed the product instead of the background.  Rejecting those at intake is far
+# cheaper than discovering them at the quality gate, three paid generations later.
+
+
+def rgb_to_hex(colour: tuple[int, int, int]) -> str:
+    return "#{:02x}{:02x}{:02x}".format(*(int(max(0, min(255, c))) for c in colour))
+
+
+#: Laplacian variance of a well-focused photograph, measured per tile at
+#: ``SHARPNESS_WORK_SIZE``.  Used only to normalise into 0-1; the pass/fail
+#: threshold lives in the intake module and is calibrated separately.
+_SHARPNESS_SCALE = 0.0015
+SHARPNESS_WORK_SIZE = 512
+#: Tiles the frame is divided into, and how many of the sharpest are averaged.
+_SHARPNESS_GRID = 4
+_SHARPNESS_TOP_TILES = 3
+
+
+def sharpness(rgb: np.ndarray, size: int = SHARPNESS_WORK_SIZE) -> float:
+    """Normalised focus estimate in roughly 0-1, from Laplacian variance.
+
+    Two deliberate choices, both of which change the answer materially.
+
+    **Fixed working resolution.**  Raw Laplacian variance is resolution-dependent —
+    the same photograph measures differently at 512 px and 4000 px — so the frame
+    is always resampled to a fixed long edge first.  The resample runs in both
+    directions on purpose: a 200 px upload stretched to 512 px measures *blurrier*
+    than a native 512 px one, which is the correct answer, because upscaling is
+    exactly what the generator would have to do with it.
+
+    **Measured on the sharpest region, not the whole frame.**  A global variance
+    punishes shallow depth of field, and a product shot with a beautifully blurred
+    background is the single most common kind of good product photograph.  The
+    question intake actually needs answered is "is *anything* here in focus?", so
+    the frame is tiled and the sharpest few tiles are averaged.  Averaging a few
+    rather than taking the single maximum keeps one noisy tile from passing an
+    otherwise motion-blurred photo.
+    """
+    img = Image.fromarray(rgb[..., :3]).convert("L")
+    w, h = img.size
+    scale = size / max(w, h)
+    img = img.resize((max(8, round(w * scale)), max(8, round(h * scale))), Image.BILINEAR)
+
+    g = np.asarray(img, dtype=np.float64) / 255.0
+    laplacian = -4.0 * g[1:-1, 1:-1] + g[:-2, 1:-1] + g[2:, 1:-1] + g[1:-1, :-2] + g[1:-1, 2:]
+
+    rows = np.array_split(laplacian, _SHARPNESS_GRID, axis=0)
+    tiles = [t for row in rows for t in np.array_split(row, _SHARPNESS_GRID, axis=1) if t.size > 1]
+    if not tiles:
+        return 0.0
+    best = sorted((float(t.var()) for t in tiles), reverse=True)[:_SHARPNESS_TOP_TILES]
+    return float(1.0 - math.exp(-(sum(best) / len(best)) / _SHARPNESS_SCALE))
+
+
+def border_ring_mask(height: int, width: int, band: float = 0.04) -> np.ndarray:
+    """Boolean mask of the outer frame ring, ``band`` of the short edge thick."""
+    thickness = max(1, round(min(height, width) * band))
+    mask = np.zeros((height, width), dtype=bool)
+    mask[:thickness, :] = True
+    mask[-thickness:, :] = True
+    mask[:, :thickness] = True
+    mask[:, -thickness:] = True
+    return mask
+
+
+#: Lab spread, in ΔE units, at which a border stops reading as a flat backdrop.
+_BORDER_SPREAD_SCALE = 12.0
+
+
+def border_uniformity(rgb: np.ndarray, band: float = 0.04) -> float:
+    """1.0 for a border that is a single flat colour, falling as it varies.
+
+    This drives exactly one decision: whether naive flood-fill background removal
+    can be trusted on this image.  A product photographed on a seamless studio
+    sweep has a uniform border and floods cleanly; a lifestyle photograph does
+    not, and flooding it would eat part of the product.
+    """
+    lab = rgb_to_lab(rgb[..., :3].astype(np.float64))
+    ring = lab[border_ring_mask(*rgb.shape[:2], band=band)]
+    spread = float(np.sqrt((ring.std(axis=0) ** 2).sum()))
+    return float(math.exp(-spread / _BORDER_SPREAD_SCALE))
+
+
+#: 4-connected dilation grows one pixel per pass, so a mask can need as many
+#: passes as the working image is wide.  The cap only bounds pathological input.
+_FLOOD_MAX_PASSES = 512
+
+
+def background_mask_by_flood(
+    rgb: np.ndarray, tolerance_de: float = 12.0, work_size: int = 192
+) -> np.ndarray:
+    """Pixels connected to the frame border *and* colour-similar to it.
+
+    A deliberately simple background segmenter: take the border's median colour,
+    keep every pixel within ``tolerance_de`` of it in Lab, then flood inward from
+    the border so that a same-coloured region *inside* the product (a white label
+    on a white sweep) is not removed along with the backdrop.
+
+    Connectivity is what makes this safe enough to use.  Colour similarity alone
+    would punch holes through the subject; requiring a path back to the frame edge
+    means only the actual surround is removed.  It is still no substitute for a
+    trained matting model — see ``adworker.intake`` for the uniformity test that
+    decides whether this result is trustworthy at all.
+    """
+    height, width = rgb.shape[:2]
+    scale = work_size / max(height, width)
+    small = np.asarray(
+        Image.fromarray(rgb[..., :3]).resize(
+            (max(8, round(width * scale)), max(8, round(height * scale))), Image.BILINEAR
+        )
+    )
+
+    lab = rgb_to_lab(small.astype(np.float64))
+    ring = border_ring_mask(*small.shape[:2])
+    # Median, not mean: a border with a shadow in one corner should still yield
+    # the backdrop colour rather than an average of backdrop and shadow.
+    reference = np.median(lab[ring], axis=0)
+    similar = delta_e_76(lab, reference) <= tolerance_de
+
+    grown = ring & similar
+    for _ in range(_FLOOD_MAX_PASSES):
+        nxt = grown.copy()
+        nxt[1:, :] |= grown[:-1, :]
+        nxt[:-1, :] |= grown[1:, :]
+        nxt[:, 1:] |= grown[:, :-1]
+        nxt[:, :-1] |= grown[:, 1:]
+        nxt &= similar
+        if nxt.sum() == grown.sum():
+            break
+        grown = nxt
+
+    # Nearest-neighbour back to full size: a mask must stay binary, and bilinear
+    # would produce fractional alpha along every edge.
+    return (
+        np.asarray(
+            Image.fromarray(grown.astype(np.uint8) * 255).resize((width, height), Image.NEAREST)
+        )
+        > 127
+    )
+
+
+def alpha_coverage(rgba: np.ndarray) -> float:
+    """Fraction of the frame that is opaque.
+
+    The sanity check on any cutout: ~1.0 means background removal did nothing,
+    ~0.0 means it removed the subject too.
+    """
+    if rgba.shape[-1] < 4:
+        return 1.0
+    return float((rgba[..., 3] > 8).mean())
+
+
+def extract_palette(
+    rgb: np.ndarray,
+    k: int = 5,
+    mask: np.ndarray | None = None,
+    merge_delta_e: float = 14.0,
+    min_weight: float = 0.03,
+) -> list[tuple[str, float]]:
+    """Brand palette as ``(hex, coverage)``, most-covering first.
+
+    Over-quantises and then merges, rather than quantising straight to ``k``.
+    Octree quantisation of a photograph readily returns four near-identical tints
+    of the same colour, and a "palette" of four navies constrains nothing —
+    :func:`brand_gamut_distance` already accepts every tint between a palette
+    colour and white.  Merging within ``merge_delta_e`` spends the ``k`` slots on
+    genuinely distinct hues instead.
+    """
+    doms = dominant_colors(rgb, k=max(2, k * 2), mask=mask)
+    if not doms:
+        return []
+
+    labs = rgb_to_lab(np.array([c for c, _ in doms], dtype=np.float64))
+    clusters: list[tuple[np.ndarray, np.ndarray, float]] = []  # (lab, rgb, weight)
+    for lab, (colour, weight) in zip(labs, doms, strict=True):
+        rgb_vec = np.array(colour, dtype=np.float64)
+        for i, (c_lab, c_rgb, c_weight) in enumerate(clusters):
+            if float(np.linalg.norm(lab - c_lab)) <= merge_delta_e:
+                total = c_weight + weight
+                clusters[i] = (
+                    (c_lab * c_weight + lab * weight) / total,
+                    (c_rgb * c_weight + rgb_vec * weight) / total,
+                    total,
+                )
+                break
+        else:
+            clusters.append((lab, rgb_vec, weight))
+
+    clusters.sort(key=lambda c: -c[2])
+    kept = [c for c in clusters if c[2] >= min_weight] or clusters[:1]
+    return [
+        (rgb_to_hex(tuple(int(round(v)) for v in c_rgb)), round(weight, 4))
+        for _, c_rgb, weight in kept[:k]
+    ]
 
 
 # --- Video -----------------------------------------------------------------

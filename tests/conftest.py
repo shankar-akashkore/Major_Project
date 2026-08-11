@@ -45,10 +45,14 @@ def governor(ledger, settings) -> P.CostGovernor:
 
 @pytest.fixture
 def references(storage) -> tuple:
-    human = P.mock_reference_asset(
-        storage, "uploads/t/human.png", AspectRatio.PORTRAIT_4_5, seed=11
-    )
-    product = P.mock_reference_asset(
+    """Role-specific synthetic uploads.
+
+    Not the generic ``mock_reference_asset``: intake cuts a product away from its
+    backdrop and looks for a face, and an abstract gradient has neither — so with
+    generic references the intake paths would never actually run in the suite.
+    """
+    human = P.mock_portrait_asset(storage, "uploads/t/human.png", AspectRatio.PORTRAIT_4_5, seed=11)
+    product = P.mock_product_asset(
         storage, "uploads/t/product.png", AspectRatio.SQUARE_1_1, seed=22
     )
     return human, product

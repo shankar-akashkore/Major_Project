@@ -22,10 +22,14 @@ dependencies = [
 
 [project.optional-dependencies]
 # Intake preprocessing — added at week 3, still laptop-friendly.
+# Both are optional at runtime: `adworker.intake` degrades to a flood-fill cutout
+# and reports face detection as unimplemented rather than failing without them.
 intake = [
     "rembg>=2.0",
-    "colorthief>=0.2.1",
-    "opencv-python-headless>=4.10",
+    # Pinned below 5.0, which ships an empty `cv2/data/` — the bundled Haar cascade
+    # XMLs were dropped, and face detection is the only thing OpenCV is here for.
+    # Verified: 4.14.0 bundles 17 cascades, 5.0.0 bundles none.
+    "opencv-python-headless>=4.10,<5",
 ]
 # Feature extraction + training.  Installed in Colab, NOT on the 8 GB laptop.
 ml = [

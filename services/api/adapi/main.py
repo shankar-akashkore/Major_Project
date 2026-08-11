@@ -149,6 +149,7 @@ async def create_demo_job(
     platform: Platform = Platform.INSTAGRAM_REELS,
     duration_seconds: float = 9.0,
     seed: int = 7,
+    brand_palette: bool = False,
 ) -> dict:
     """Start a job against synthetic references.
 
@@ -167,10 +168,13 @@ async def create_demo_job(
     from adschema import AspectRatio, Mood, Vertical
 
     job_id = uuid.uuid4().hex[:16]
-    human = P.mock_reference_asset(
+    # Role-specific synthetic uploads so the demo exercises the real intake paths:
+    # the portrait is detectable by the face cascade and the product sits on a flat
+    # sweep the flood-fill cutout can handle.
+    human = P.mock_portrait_asset(
         storage, f"uploads/{job_id}/human.png", AspectRatio.PORTRAIT_4_5, seed=11
     )
-    product = P.mock_reference_asset(
+    product = P.mock_product_asset(
         storage, f"uploads/{job_id}/product.png", AspectRatio.SQUARE_1_1, seed=22
     )
     request = AdJobRequest(
@@ -183,7 +187,12 @@ async def create_demo_job(
         vertical=Vertical.BEAUTY,
         platform=platform,
         mood=Mood.CALM_PREMIUM,
-        theme=ThemeSpec(palette=["#2b3a55", "#ce7777", "#f2e7d5"]),
+        # Empty by default so intake extracts the palette from the product cutout,
+        # which is the more interesting path to be able to look at. Pass
+        # `brand_palette=true` to exercise the supplied-palette path instead.
+        theme=ThemeSpec(
+            palette=["#2b3a55", "#ce7777", "#f2e7d5"] if brand_palette else [],
+        ),
         duration_seconds=duration_seconds,
         candidate_count=3,
         seed=seed,
