@@ -43,6 +43,21 @@ Open <http://localhost:8077> and press **Run demo job**. It runs the full
 eight-stage pipeline against synthetic references, costs nothing, and needs no
 API keys.
 
+**Replay** on the same page runs a *frozen* job instead — the real generations a
+paid provider returned, kept on disk, replayed through the real pipeline for
+$0.0000 and with no network. That is what gets shown at the viva, because Kling's
+image-to-video endpoint has no seed, so a job that produced good candidates cannot
+be asked to produce them again:
+
+```bash
+.venv/bin/python scripts/freeze_golden.py --slug aurora-reels && .venv/bin/python scripts/replay_golden.py --all
+```
+
+`replay_golden.py` is also the regression suite: a replay recomputes the gate, both
+rankings and all of delivery against frozen bytes, and exits non-zero if today's
+code no longer produces the ranking that was frozen — see
+[docs/golden-protocol.md](docs/golden-protocol.md).
+
 To collect preference labels, build a corpus and share the comparison tool:
 
 ```bash
@@ -247,6 +262,17 @@ audio content: no bed is the normal state and the report says so, and the synthe
 tone used to exercise the mixing path is flagged `is_test_signal` so it can never be
 described as a soundtrack.
 
+**A replay that read nothing is caught, not trusted.** The golden demo set replays
+frozen generations through the real pipeline, and the first replay written reported
+a clean pass having opened zero frozen files: the cost governor's cache is consulted
+*before* the provider, and the frozen uploads hash to the same digests, so every
+fingerprint hit and the bundle was never touched. Correct output produced entirely by
+local database state. The cache is now off for a replay, and `GoldenSession.audit()`
+counts what was actually served so a return of the bug is a reported problem rather
+than a green tick. The mirror-image failure had already happened on the freeze side —
+a bundle with three ranked candidates and zero recorded frames, because cached
+generations call no provider for a wrapper to observe.
+
 **Video is decoded, not assumed.** Every clip measurement goes through
 `adml.video`, which reads duration, frame rate and geometry out of the file with
 ffprobe rather than trusting the provider's response. Delivered clips are checked
@@ -259,25 +285,28 @@ chained clip is identified whether or not the provider admits to one.
 ## Layout
 
 ```
-apps/web/            Next.js product UI — not built yet (week 13)
-services/api/        FastAPI: jobs, SSE progress, budget, media, annotation
+apps/web/            Next.js product UI — not built yet
+services/api/        FastAPI: jobs, SSE progress, budget, media, annotation,
+                     golden replay
   adapi/dev.html     single-file inspection harness (not the product UI)
   adapi/annotate.html  the 2AFC comparison tool, shareable, no build step
 services/worker/     the pipeline: sampler, briefs, gate, scoring, delivery,
                      orchestrator
 packages/schema/     the job contract — single source of truth, no heavy deps
-packages/providers/  provider ABCs, MockProvider, CostGovernor, ledger, storage
+packages/providers/  provider ABCs, MockProvider, CostGovernor, ledger, storage,
+                     the research tier and the golden demo set
 packages/ml/         numpy features, pair design, Bradley-Terry + metrics,
                      set-wise splits, the pairwise head, the evaluation harness,
                      ffmpeg video I/O, model persistence and serving,
                      saliency-aware reframing, the audio mix
 scripts/             calibrate_gate.py, calibrate_intake.py, smoke_live.py,
                      generate_corpus.py, build_corpus.py, annotation_report.py,
-                     extract_features.py, train_predictor.py
+                     extract_features.py, train_predictor.py,
+                     freeze_golden.py, replay_golden.py
 notebooks/           colab_embeddings.ipynb, colab_video.ipynb — the only parts
                      that need torch or a GPU
 fixtures/            uploads, generations, annotation corpus, golden demo set
-tests/               298 tests
+tests/               330 tests
 ```
 
 `packages/schema` imports no torch, no provider SDK and no DB driver, so it stays
@@ -461,6 +490,17 @@ Verified on this machine, and they shaped the architecture:
       ships no audio, so a delivered clip is silent until a bed with recorded
       provenance is passed to the pipeline. The tone used in tests is flagged as a
       test signal and must not be shipped.
-- [ ] Next.js product UI (week 13 carried forward). The FastAPI dev harness and the
-      annotation tool cover inspection and label collection; the wizard, job board
-      and ranked-results UI are still unbuilt.
+- [x] **The golden demo set** (week 14): a job frozen to disk — uploads, brief text,
+      generated frames and clips — and replayed through the *real* pipeline offline
+      for $0.0000, so the gate, both rankings and all of delivery still run. That
+      makes it the demo and a regression test at once; `replay_golden.py --all` exits
+      non-zero if the frozen ranking no longer reproduces. See
+      [docs/golden-protocol.md](docs/golden-protocol.md).
+- [ ] **Freeze the real golden set once the premium budget is released.** The bundle
+      committed here is frozen from synthetic references, so it demonstrates the
+      machinery and not the output. The manifests are committed and the media is not
+      (SHA-256 per asset, so a missing file is named) — back the media up with
+      `freeze_golden.py --pack` before the viva rather than after.
+- [ ] Next.js product UI. The FastAPI dev harness and the annotation tool cover
+      inspection, label collection and the golden replay; the wizard, job board and
+      ranked-results UI are still unbuilt.

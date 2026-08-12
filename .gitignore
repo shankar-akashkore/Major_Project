@@ -36,6 +36,15 @@ fixtures/delivery/*
 # Research-tier clips: generated free on a Colab GPU, tens of megabytes each, and
 # reproducible by re-running notebooks/colab_video.ipynb over the same corpus.
 fixtures/research/*
+# The golden demo set. The manifests ARE committed — they are the record of what
+# was generated, what it cost and what ranking it produced, and they are a few kB
+# of JSON. The frozen media is not: eight bundles of three 10 s clips is tens of
+# megabytes, and every manifest carries its assets' SHA-256 so a missing file is
+# named rather than silently changing the demo. Back the media up with
+# `scripts/freeze_golden.py --slug <name> --pack`.
+fixtures/golden/*/assets/*
+fixtures/golden/*.zip
+
 # Trained rankers are small (a linear head over ~40 features is a few kB) but they
 # are build output, not source, and a stale committed model would be served by the
 # pipeline in preference to nothing at all. Regenerate with

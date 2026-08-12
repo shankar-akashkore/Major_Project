@@ -66,13 +66,31 @@ class Settings(BaseSettings):
     # and one statement to reconcile against the ledger.
     fal_api_key: str = Field(default="", description="fal.ai API key. Blank keeps live mode off.")
 
+    # --- Golden demo set ---
+    #: Which frozen bundle ``AD_PROVIDER_MODE=replay`` serves. A slug, matching a
+    #: directory under ``<storage_root>/golden/``. The viva runs this way: no
+    #: network, no credential, no spend, and the exact candidates that were
+    #: generated when the budget was still available.
+    golden_set: str | None = Field(
+        default=None,
+        description="Slug of the golden bundle to replay. Required when AD_PROVIDER_MODE=replay.",
+    )
+
     @property
     def clip_manifest_dir(self) -> Path:
         return self.clip_manifest or (self.storage_root / "research")
 
     @property
+    def golden_root(self) -> Path:
+        return self.storage_root
+
+    @property
     def is_live(self) -> bool:
         return self.provider_mode is ProviderMode.LIVE
+
+    @property
+    def is_replay(self) -> bool:
+        return self.provider_mode is ProviderMode.REPLAY
 
     def describe(self) -> str:
         """One-line banner, printed on worker startup.
@@ -85,6 +103,11 @@ class Settings(BaseSettings):
                 f"⚠️  LIVE MODE — real spend enabled. "
                 f"budget=${self.budget_total_usd:.2f} per_job=${self.budget_per_job_usd:.2f} "
                 f"image={self.image_provider} video={self.video_provider}"
+            )
+        if self.is_replay:
+            return (
+                f"📼 REPLAY MODE — serving frozen golden set "
+                f"{self.golden_set or '(none configured)'}. No calls, no spend."
             )
         return "✅ MOCK MODE — no external calls, no spend."
 

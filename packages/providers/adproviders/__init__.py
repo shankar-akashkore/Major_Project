@@ -16,6 +16,28 @@ from .base import (
     VideoProvider,
 )
 from .fal import FalClient, FalImageProvider, FalVideoProvider
+from .golden import (
+    GOLDEN_VERSION,
+    FrozenAsset,
+    FrozenClip,
+    FrozenFrame,
+    GoldenBundle,
+    GoldenDrift,
+    GoldenError,
+    GoldenExpectation,
+    GoldenImageProvider,
+    GoldenLLMProvider,
+    GoldenMiss,
+    GoldenRecorder,
+    GoldenSession,
+    GoldenVideoProvider,
+    RecordingImageProvider,
+    RecordingLLMProvider,
+    RecordingVideoProvider,
+    build_golden_bundle,
+    compare_replay,
+    list_bundles,
+)
 from .governor import BudgetExceeded, CostGovernor, RetryBudgetExceeded
 from .ledger import InMemoryLedger, LedgerStore, SqlLedger
 from .mock import (
@@ -41,7 +63,14 @@ from .pricing import (
     estimate_llm_cost,
     estimate_video_cost,
 )
-from .registry import get_image_provider, get_llm_provider, get_video_provider
+from .registry import (
+    ProviderSet,
+    get_image_provider,
+    get_llm_provider,
+    get_providers,
+    get_video_provider,
+    golden_bundle_path,
+)
 from .settings import Settings, get_settings
 from .storage import LocalStorage, Storage, get_storage
 
@@ -86,10 +115,34 @@ __all__ = [
     "ClipManifest",
     "ClipEntry",
     "clip_fingerprint",
+    # golden demo set
+    "GOLDEN_VERSION",
+    "GoldenBundle",
+    "GoldenExpectation",
+    "GoldenDrift",
+    "GoldenError",
+    "GoldenMiss",
+    "GoldenRecorder",
+    "GoldenSession",
+    "GoldenImageProvider",
+    "GoldenVideoProvider",
+    "GoldenLLMProvider",
+    "RecordingImageProvider",
+    "RecordingVideoProvider",
+    "RecordingLLMProvider",
+    "FrozenAsset",
+    "FrozenFrame",
+    "FrozenClip",
+    "build_golden_bundle",
+    "compare_replay",
+    "list_bundles",
     # wiring
+    "ProviderSet",
+    "get_providers",
     "get_image_provider",
     "get_video_provider",
     "get_llm_provider",
+    "golden_bundle_path",
     "Settings",
     "get_settings",
     "Storage",

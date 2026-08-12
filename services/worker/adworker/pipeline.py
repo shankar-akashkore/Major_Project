@@ -273,7 +273,12 @@ class Pipeline:
                 brief=effective,
                 asset=cached,
                 tier=self.images.tier,
-                provider=self.images.name,
+                # The model, matching what the generated branch below records. These
+                # disagreed until the golden freeze put a wrapper in front of the
+                # provider and the two branches started reporting different strings
+                # for the same candidate: a cache hit named the adapter, a real call
+                # named the endpoint. The endpoint is the useful one.
+                provider=self.images.model,
                 seed=seed,
                 cost_usd=0.0,
             )
@@ -489,7 +494,7 @@ class Pipeline:
                     duration_seconds=delivered,
                     requested_duration_seconds=request.duration_seconds,
                     tier=self.videos.tier,
-                    provider=self.videos.name,
+                    provider=self.videos.model,
                     seed=seed,
                     seed_honoured=self.videos.honours_seed,
                     cost_usd=0.0,

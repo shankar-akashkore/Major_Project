@@ -91,6 +91,11 @@
         <input id="seed" type="number" value="7" style="width:90px">
       </div>
       <button id="run">Run demo job</button>
+      <div>
+        <label for="golden">Golden set (frozen, replays free)</label>
+        <select id="golden"></select>
+      </div>
+      <button id="replay">Replay</button>
     </div>
     <div class="bar"><i id="progress"></i></div>
     <pre class="log" id="log">Idle.</pre>
@@ -137,19 +142,25 @@ function logLine(html) {
   el.scrollTop = el.scrollHeight;
 }
 
-$('run').onclick = async () => {
+// Both buttons run the same job machinery — a golden replay is a real job, not a
+// playback — so the only difference is which endpoint starts it.
+async function startJob(url, label) {
   $('run').disabled = true;
+  $('replay').disabled = true;
   $('log').textContent = '';
   $('results').innerHTML = '';
   $('progress').style.width = '0';
 
-  const params = new URLSearchParams({
-    platform: $('platform').value,
-    duration_seconds: $('duration').value,
-    seed: $('seed').value,
-  });
-  const { job_id } = await (await fetch('/api/jobs/demo?' + params, { method: 'POST' })).json();
-  logLine(`<b>job ${job_id}</b> queued`);
+  const started = await (await fetch(url, { method: 'POST' })).json();
+  if (started.detail) {
+    logLine(`<b>refused</b> ${started.detail}`);
+    $('run').disabled = false;
+    $('replay').disabled = false;
+    return;
+  }
+  const job_id = started.job_id;
+  logLine(`<b>job ${job_id}</b> queued — ${label}`);
+  if (started.replaying) logLine(`replaying ${started.replaying}`);
 
   const es = new EventSource(`/api/jobs/${job_id}/events`);
   es.onmessage = (m) => {
@@ -171,9 +182,49 @@ $('run').onclick = async () => {
     await render(job_id);
     await refreshBudget();
     $('run').disabled = false;
+    $('replay').disabled = false;
   });
-  es.onerror = () => { es.close(); $('run').disabled = false; };
+  es.onerror = () => {
+    es.close();
+    $('run').disabled = false;
+    $('replay').disabled = false;
+  };
+}
+
+$('run').onclick = () => {
+  const params = new URLSearchParams({
+    platform: $('platform').value,
+    duration_seconds: $('duration').value,
+    seed: $('seed').value,
+  });
+  return startJob('/api/jobs/demo?' + params, 'generating');
 };
+
+$('replay').onclick = () => {
+  const slug = $('golden').value;
+  if (!slug) return;
+  return startJob(`/api/jobs/golden/${slug}`, `replaying golden set ${slug}`);
+};
+
+async function loadGolden() {
+  const sets = await (await fetch('/api/golden')).json();
+  const sel = $('golden');
+  sel.innerHTML = '';
+  if (!sets.length) {
+    sel.innerHTML = '<option value="">nothing frozen yet</option>';
+    $('replay').disabled = true;
+    return;
+  }
+  for (const s of sets) {
+    const o = document.createElement('option');
+    o.value = s.slug;
+    o.textContent = `${s.slug} · ${s.clips} clips · $${(s.original_cost_usd || 0).toFixed(2)}`
+      + (s.replayable ? '' : ' · MEDIA MISSING');
+    o.disabled = !s.replayable;
+    sel.appendChild(o);
+  }
+  $('replay').disabled = false;
+}
 
 function clipTag(asset) {
   const isVideo = asset.mime_type === 'video/mp4';
@@ -351,6 +402,7 @@ async function render(jobId) {
 }
 
 loadConfig();
+loadGolden();
 </script>
 </body>
 </html>

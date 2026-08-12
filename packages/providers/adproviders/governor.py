@@ -24,7 +24,7 @@ import json
 from collections.abc import Awaitable, Callable
 from typing import TypeVar
 
-from adschema import AssetRef, BudgetStatus, ProviderMode, SpendEntry
+from adschema import AssetRef, BudgetStatus, SpendEntry
 
 from .ledger import LedgerStore
 from .settings import Settings
@@ -58,9 +58,22 @@ class RetryBudgetExceeded(RuntimeError):
 class CostGovernor:
     """Gatekeeper for every call that could cost money."""
 
-    def __init__(self, ledger: LedgerStore, settings: Settings):
+    def __init__(self, ledger: LedgerStore, settings: Settings, *, use_cache: bool = True):
         self.ledger = ledger
         self.settings = settings
+        #: Whether to consult the generation cache at all.
+        #:
+        #: On by default and it should stay that way — serving a repeated request
+        #: for free is what stops a re-run costing $2.22 again. It is off for a
+        #: golden replay, and that turned out to matter: the cache is checked
+        #: *before* the provider, and the frozen uploads hash to what they hashed
+        #: to at freeze time, so every fingerprint hits and the replay serves
+        #: nothing from the bundle at all. The first replay written here reported
+        #: a clean pass having read zero frozen bytes — correct output produced by
+        #: local database state, on a code path that would not exist on a fresh
+        #: machine. Which bytes a replay serves must not depend on what happens to
+        #: be in the ledger.
+        self.use_cache = use_cache
         self._attempts: dict[str, int] = {}
 
     # --- Budget introspection ------------------------------------------------
@@ -143,12 +156,17 @@ class CostGovernor:
         Order of operations is the point: check, reserve, call, settle.  A crash
         anywhere after the reservation leaves the money accounted for.
         """
-        if self.settings.provider_mode is ProviderMode.MOCK:
+        # Every mode except live must estimate zero. Written as "not live" rather
+        # than "is mock" so that adding a free mode cannot accidentally add a
+        # spending one: a replay of a frozen premium job runs providers whose model
+        # names are priced in dollars, and the assertion below is what forces those
+        # providers to declare the cost of *this* run rather than the original.
+        if not self.settings.is_live:
             if estimated_usd > 0:
                 raise AssertionError(
-                    f"mock mode must never estimate a non-zero cost "
-                    f"(got ${estimated_usd:.4f} for {provider}/{operation}) — "
-                    "this means a live provider leaked into a mock run"
+                    f"{self.settings.provider_mode.value} mode must never estimate a "
+                    f"non-zero cost (got ${estimated_usd:.4f} for {provider}/{operation}) — "
+                    "this means a live provider leaked into a free run"
                 )
             return await call()
 
@@ -194,7 +212,14 @@ class CostGovernor:
     # --- Cache ---------------------------------------------------------------
 
     async def cached_asset(self, fingerprint: str) -> AssetRef | None:
+        if not self.use_cache:
+            return None
         return await self.ledger.lookup_cache(fingerprint)
 
     async def remember_asset(self, fingerprint: str, operation: str, asset: AssetRef) -> None:
+        # Writing is disabled with reading, not only for symmetry: a replay's assets
+        # live under a throwaway job id, and caching them would point a later real
+        # run at a directory that gets cleaned up.
+        if not self.use_cache:
+            return
         await self.ledger.store_cache(fingerprint, operation, asset)

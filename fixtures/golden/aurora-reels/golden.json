@@ -1,0 +1,276 @@
+{
+  "version": 1,
+  "slug": "aurora-reels",
+  "title": "Aurora Serum",
+  "created_at": "2026-08-11T20:05:10+00:00",
+  "provenance": {
+    "provider_mode": "mock",
+    "image_model": "mock",
+    "video_model": "mock",
+    "llm_model": "mock",
+    "cost_usd": 0.0,
+    "frozen_by": "scripts/freeze_golden.py",
+    "backfilled": [
+      "frame on slot 0 came from the generation cache",
+      "frame on slot 1 came from the generation cache",
+      "frame on slot 2 came from the generation cache",
+      "clip on slot 0 came from the generation cache",
+      "clip on slot 1 came from the generation cache",
+      "clip on slot 2 came from the generation cache"
+    ]
+  },
+  "request": {
+    "job_id": "49bc33420ef4449e",
+    "created_at": "2026-08-11T20:05:07.955680Z",
+    "human_model_image": {
+      "key": "golden/aurora-reels/assets/human.png",
+      "url": null,
+      "mime_type": "image/png",
+      "width": 410,
+      "height": 512,
+      "sha256": "9017ad2b98da1fe56c2b8ae999454cdbef7e4d00dbe4f34a419d73b50332def8"
+    },
+    "product_image": {
+      "key": "golden/aurora-reels/assets/product.png",
+      "url": null,
+      "mime_type": "image/png",
+      "width": 512,
+      "height": 512,
+      "sha256": "57a6e00d5ce8a26700a28cd5d836c05b2d23de84361887d5731fd7504938ab0d"
+    },
+    "logo_image": null,
+    "product_name": "Aurora Serum",
+    "caption": "Glow that lasts",
+    "cta_text": "Shop now",
+    "additional_prompt": "",
+    "negative_constraints": "",
+    "vertical": "beauty",
+    "platform": "instagram_reels",
+    "audience": {
+      "age_band": "18-34",
+      "region": "IN",
+      "language": "en"
+    },
+    "theme": {
+      "palette": [],
+      "background": "soft_gradient",
+      "background_color": null,
+      "palette_auto_extracted": false
+    },
+    "mood": "calm_premium",
+    "aspect_ratio_override": null,
+    "duration_seconds": 9.0,
+    "candidate_count": 3,
+    "locked_angle": null,
+    "seed": 7,
+    "consent": {
+      "has_model_release": true,
+      "not_a_public_figure": true,
+      "attested_at": "2026-08-11T20:05:07.955672Z",
+      "attested_by": null
+    },
+    "tier": "mock"
+  },
+  "uploads": {
+    "human": {
+      "key": "golden/aurora-reels/assets/human.png",
+      "sha256": "9017ad2b98da1fe56c2b8ae999454cdbef7e4d00dbe4f34a419d73b50332def8",
+      "size_bytes": 152532,
+      "mime_type": "image/png",
+      "width": 410,
+      "height": 512
+    },
+    "product": {
+      "key": "golden/aurora-reels/assets/product.png",
+      "sha256": "57a6e00d5ce8a26700a28cd5d836c05b2d23de84361887d5731fd7504938ab0d",
+      "size_bytes": 2751,
+      "mime_type": "image/png",
+      "width": 512,
+      "height": 512
+    }
+  },
+  "frames": [
+    {
+      "slot": 0,
+      "attempt": 1,
+      "asset": {
+        "key": "golden/aurora-reels/assets/img_0.png",
+        "sha256": "9b419a2b8da22966c1ccebe12f882f479461d023883d2409d77d11858c9d2c72",
+        "size_bytes": 7994,
+        "mime_type": "image/png",
+        "width": 270,
+        "height": 480
+      },
+      "model": "mock",
+      "tier": "mock",
+      "seed": 7,
+      "design_point": {
+        "index": 0,
+        "angle": "eye_level",
+        "lighting": "high_key",
+        "composition": "centered_hero",
+        "motion": "slow_dolly_in",
+        "seed": 7
+      },
+      "prompt_sha256": "09996dc944c7eaf7",
+      "latency_ms": 0,
+      "cost_usd": 0.0
+    },
+    {
+      "slot": 1,
+      "attempt": 1,
+      "asset": {
+        "key": "golden/aurora-reels/assets/img_1.png",
+        "sha256": "c99e3c5a766711061f44db4ea778a4e374855f47f26b3ff559e9832913ddd692",
+        "size_bytes": 7943,
+        "mime_type": "image/png",
+        "width": 270,
+        "height": 480
+      },
+      "model": "mock",
+      "tier": "mock",
+      "seed": 8,
+      "design_point": {
+        "index": 1,
+        "angle": "close_up_product",
+        "lighting": "rim_backlit",
+        "composition": "product_foreground",
+        "motion": "static_subtle",
+        "seed": 8
+      },
+      "prompt_sha256": "d771524180aa4a05",
+      "latency_ms": 0,
+      "cost_usd": 0.0
+    },
+    {
+      "slot": 2,
+      "attempt": 1,
+      "asset": {
+        "key": "golden/aurora-reels/assets/img_2.png",
+        "sha256": "232ba3e2c5640d514e790ece7ef936e897572b8e625c4bc4cbc04e2be9714475",
+        "size_bytes": 8329,
+        "mime_type": "image/png",
+        "width": 270,
+        "height": 480
+      },
+      "model": "mock",
+      "tier": "mock",
+      "seed": 9,
+      "design_point": {
+        "index": 2,
+        "angle": "three_quarter",
+        "lighting": "soft_diffused",
+        "composition": "rule_of_thirds_right",
+        "motion": "slow_dolly_out",
+        "seed": 9
+      },
+      "prompt_sha256": "53b470b0c8ad2c14",
+      "latency_ms": 0,
+      "cost_usd": 0.0
+    }
+  ],
+  "clips": [
+    {
+      "slot": 0,
+      "asset": {
+        "key": "golden/aurora-reels/assets/vid_0.mp4",
+        "sha256": "b3fdd663ebaf9fbed9d0439ca3a6fa466756fa1b4fd1b5d2e41ffe7bdfaeac8a",
+        "size_bytes": 14249,
+        "mime_type": "video/mp4",
+        "width": 135,
+        "height": 240
+      },
+      "model": "mock",
+      "tier": "mock",
+      "duration_seconds": 9.0,
+      "fps": 24,
+      "seed": 7,
+      "seed_honoured": true,
+      "was_chained": false,
+      "seam_consistency": null,
+      "start_sha256": "9b419a2b8da22966c1ccebe12f882f479461d023883d2409d77d11858c9d2c72",
+      "motion": "slow_dolly_in",
+      "latency_ms": 0,
+      "cost_usd": 0.0
+    },
+    {
+      "slot": 1,
+      "asset": {
+        "key": "golden/aurora-reels/assets/vid_1.mp4",
+        "sha256": "540436ee2a737aa553d1d5df2c30c9ab31f328614b090c8e26b262f59766ad28",
+        "size_bytes": 8553,
+        "mime_type": "video/mp4",
+        "width": 135,
+        "height": 240
+      },
+      "model": "mock",
+      "tier": "mock",
+      "duration_seconds": 9.0,
+      "fps": 24,
+      "seed": 8,
+      "seed_honoured": true,
+      "was_chained": false,
+      "seam_consistency": null,
+      "start_sha256": "c99e3c5a766711061f44db4ea778a4e374855f47f26b3ff559e9832913ddd692",
+      "motion": "static_subtle",
+      "latency_ms": 0,
+      "cost_usd": 0.0
+    },
+    {
+      "slot": 2,
+      "asset": {
+        "key": "golden/aurora-reels/assets/vid_2.mp4",
+        "sha256": "3c2d4a1d6f4713ae211993781838a43a9afbb792c280225399c14d7ea37956c1",
+        "size_bytes": 13378,
+        "mime_type": "video/mp4",
+        "width": 135,
+        "height": 240
+      },
+      "model": "mock",
+      "tier": "mock",
+      "duration_seconds": 9.0,
+      "fps": 24,
+      "seed": 9,
+      "seed_honoured": true,
+      "was_chained": false,
+      "seam_consistency": null,
+      "start_sha256": "232ba3e2c5640d514e790ece7ef936e897572b8e625c4bc4cbc04e2be9714475",
+      "motion": "slow_dolly_out",
+      "latency_ms": 0,
+      "cost_usd": 0.0
+    }
+  ],
+  "completions": {},
+  "expectation": {
+    "state": "completed",
+    "image_order": [
+      1,
+      0,
+      2
+    ],
+    "video_order": [
+      1,
+      0,
+      2
+    ],
+    "winner_slot": 1,
+    "image_scores": {
+      "0": 0.115,
+      "1": 1.0,
+      "2": 0.0
+    },
+    "video_scores": {
+      "0": 0.7226,
+      "1": 0.7526,
+      "2": 0.7157
+    },
+    "gate_verdicts": {
+      "0": "pass",
+      "1": "pass",
+      "2": "pass"
+    },
+    "scored_by": "pairwise-linear-20260811",
+    "delivery_summary": "3 renders, 3 previews, worst reframe 16:9 at 56% salience via pad, 1 warning(s)",
+    "original_cost_usd": 0.0
+  }
+}

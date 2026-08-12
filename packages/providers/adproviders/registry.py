@@ -9,10 +9,14 @@ fallback would let a "live" experiment quietly produce mock data.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from pathlib import Path
+
 from adschema import ProviderMode
 
 from .base import ImageProvider, LLMProvider, ProviderUnavailable, VideoProvider
 from .fal import FalImageProvider, FalVideoProvider
+from .golden import GOLDEN_PREFIX, GoldenBundle, GoldenSession
 from .mock import MockImageProvider, MockLLMProvider, MockVideoProvider
 from .prerendered import PrerenderedVideoProvider
 from .settings import Settings, get_settings
@@ -81,10 +85,27 @@ def _build(builder: type, settings: Settings, storage: Storage):
     return builder(storage)
 
 
+def _replay_only(kind: str) -> ProviderUnavailable:
+    """Refuse to hand out one replay provider in isolation.
+
+    The three golden providers must share a :class:`GoldenSession`: it holds the
+    per-slot attempt counter and collects the drift notes, and three separate
+    sessions would silently split both.  So a single-provider getter cannot serve
+    replay mode correctly, and saying so is better than returning something that
+    works until the first gate retry.
+    """
+    return ProviderUnavailable(
+        f"AD_PROVIDER_MODE=replay cannot build a {kind} provider on its own — the "
+        "golden providers share one session. Call get_providers() instead."
+    )
+
+
 def get_image_provider(
     settings: Settings | None = None, storage: Storage | None = None
 ) -> ImageProvider:
     settings = settings or get_settings()
+    if settings.is_replay:
+        raise _replay_only("image")
     name = "mock" if settings.provider_mode is ProviderMode.MOCK else settings.image_provider
     builder = _IMAGE_BUILDERS.get(name)
     if builder is None:
@@ -107,6 +128,8 @@ def get_video_provider(
     settings: Settings | None = None, storage: Storage | None = None
 ) -> VideoProvider:
     settings = settings or get_settings()
+    if settings.is_replay:
+        raise _replay_only("video")
     requested = settings.video_provider
     if settings.provider_mode is ProviderMode.MOCK and requested not in _FREE_VIDEO_PROVIDERS:
         requested = "mock"
@@ -120,8 +143,75 @@ def get_video_provider(
 
 def get_llm_provider(settings: Settings | None = None) -> LLMProvider:
     settings = settings or get_settings()
+    if settings.is_replay:
+        raise _replay_only("llm")
     name = "mock" if settings.provider_mode is ProviderMode.MOCK else settings.llm_provider
     builder = _LLM_BUILDERS.get(name)
     if builder is None:
         raise _unavailable("llm", name, _PLANNED_LLM)
     return builder()  # type: ignore[call-arg]
+
+
+@dataclass(frozen=True)
+class ProviderSet:
+    """The three providers one job runs against, resolved together.
+
+    Resolving them as a set rather than one at a time exists for replay: the golden
+    providers share a session, and a caller that fetched them separately would get
+    three sessions and lose both the attempt counter and the drift notes.  Ordinary
+    modes get the same shape, so the pipeline's construction is mode-independent.
+    """
+
+    images: ImageProvider
+    videos: VideoProvider
+    llm: LLMProvider
+    #: Present only for a replay. Read after the job to collect drift notes.
+    golden: GoldenSession | None = None
+
+    @property
+    def mode_note(self) -> str:
+        if self.golden is not None:
+            return f"replaying golden set {self.golden.bundle.slug!r}"
+        return f"{self.images.model} + {self.videos.model}"
+
+
+def golden_bundle_path(settings: Settings, slug: str) -> Path:
+    return Path(settings.golden_root) / GOLDEN_PREFIX / slug
+
+
+def get_providers(
+    settings: Settings | None = None,
+    storage: Storage | None = None,
+    *,
+    golden_set: str | None = None,
+) -> ProviderSet:
+    """Resolve the provider triple for one job.
+
+    Passing ``golden_set`` replays that bundle whatever the configured mode is,
+    which is what the API's replay route needs: the demo button has to work while
+    the app is otherwise sitting in mock mode, without a restart and without
+    touching the money switch.
+    """
+    settings = settings or get_settings()
+    storage = storage or get_storage(settings.storage_backend, settings.storage_root)
+
+    slug = golden_set or (settings.golden_set if settings.is_replay else None)
+    if slug:
+        bundle = GoldenBundle.load(golden_bundle_path(settings, slug))
+        session = GoldenSession(bundle, storage)
+        return ProviderSet(
+            images=session.image_provider(),
+            videos=session.video_provider(),
+            llm=session.llm_provider(),
+            golden=session,
+        )
+    if settings.is_replay:
+        raise ProviderUnavailable(
+            "AD_PROVIDER_MODE=replay needs AD_GOLDEN_SET to name a frozen bundle. "
+            "List what exists with `scripts/replay_golden.py --list`."
+        )
+    return ProviderSet(
+        images=get_image_provider(settings, storage),
+        videos=get_video_provider(settings, storage),
+        llm=get_llm_provider(settings),
+    )

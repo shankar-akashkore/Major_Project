@@ -225,8 +225,18 @@ class GateVerdict(str, Enum):
 
 
 class ProviderMode(str, Enum):
+    """How generations are obtained.
+
+    ``REPLAY`` is a third mode rather than a variant of ``MOCK`` because the two
+    make opposite promises about the pixels.  Mock output is synthetic and says so;
+    replay output is the real thing a paid provider returned, recorded to disk.
+    Both cost nothing, which is why only ``LIVE`` can spend — see
+    ``Settings.is_live``, which every budget check reads.
+    """
+
     MOCK = "mock"
     LIVE = "live"
+    REPLAY = "replay"
 
 
 class Tier(str, Enum):

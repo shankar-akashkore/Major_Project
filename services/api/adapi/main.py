@@ -26,6 +26,7 @@ from adschema import (
     JobRecord,
     JobState,
     Platform,
+    Stage,
     StageEvent,
     ThemeSpec,
 )
@@ -94,33 +95,68 @@ async def _store_upload(job_id: str, name: str, upload: UploadFile) -> AssetRef:
     return storage.put_bytes(key, data, MEDIA_MIME[suffix])
 
 
-async def _run(record: JobRecord) -> None:
+async def _run(record: JobRecord, providers: P.ProviderSet | None = None) -> None:
     """Execute a job, persisting after every stage so a refresh shows progress."""
 
     async def on_progress(event: StageEvent) -> None:
         await bus.publish(event)
         await store.save(record)
 
+    providers = providers or P.get_providers(settings, storage)
+    replay = providers.golden
     pipeline = Pipeline(
         storage=storage,
-        governor=_governor(),
-        image_provider=P.get_image_provider(settings, storage),
-        video_provider=P.get_video_provider(settings, storage),
-        llm_provider=P.get_llm_provider(settings),
+        # A replay reads its generations from the bundle, so the cache is turned
+        # off: with it on, every fingerprint hits and the frozen bytes are never
+        # opened. See CostGovernor.use_cache.
+        governor=P.CostGovernor(ledger, settings, use_cache=replay is None),
+        image_provider=providers.images,
+        video_provider=providers.videos,
+        llm_provider=providers.llm,
         on_progress=on_progress,
     )
     try:
+        before = await ledger.total_spent()
         completed = await pipeline.run(record.request)
+        if replay is not None:
+            spent = await ledger.total_spent() - before
+            await _report_drift(completed, replay, spent, on_progress)
         await store.save(completed)
     finally:
         bus.mark_finished(record.job_id)
         _running.pop(record.job_id, None)
 
 
-async def _launch(request: AdJobRequest) -> JobRecord:
+async def _report_drift(record: JobRecord, replay: P.GoldenSession, spent: float, emit) -> None:
+    """Put the replay's disagreement with its bundle into the job's own event log.
+
+    A replay is a regression test, and the place a regression has to be visible is
+    the run that found it — not a script's stdout that nobody reads during a demo.
+    """
+    drift = P.compare_replay(
+        replay.bundle, record, spent_usd=spent, notes=replay.notes + replay.audit()
+    )
+    messages = (
+        [(f"replay of {drift.slug!r} matches what was frozen", "progress")]
+        if drift.ok
+        else [(f"golden replay drift — {line}", "warning") for line in drift.lines]
+    )
+    for message, state in messages:
+        event = StageEvent(
+            job_id=record.job_id,
+            stage=Stage.DELIVERY,
+            state=state,
+            message=message,
+            progress=1.0,
+        )
+        record.events.append(event)
+        await emit(event)
+
+
+async def _launch(request: AdJobRequest, providers: P.ProviderSet | None = None) -> JobRecord:
     record = JobRecord(request=request, state=JobState.QUEUED)
     await store.save(record)
-    _running[record.job_id] = asyncio.create_task(_run(record))
+    _running[record.job_id] = asyncio.create_task(_run(record, providers))
     return record
 
 
@@ -138,8 +174,10 @@ async def get_config() -> dict:
     return {
         "provider_mode": settings.provider_mode.value,
         "is_live": settings.is_live,
+        "is_replay": settings.is_replay,
         "image_provider": settings.image_provider,
         "video_provider": settings.video_provider,
+        "golden_set": settings.golden_set,
         "banner": settings.describe(),
         "platforms": {
             p.value: {
@@ -207,6 +245,67 @@ async def create_demo_job(
     )
     record = await _launch(request)
     return {"job_id": record.job_id, "state": record.state.value}
+
+
+@app.get("/api/golden")
+async def list_golden() -> list[dict]:
+    """The frozen demo set: what can be shown without a network or a budget."""
+    out = []
+    for bundle in P.list_bundles(settings.golden_root):
+        problems = bundle.verify(storage)
+        expectation = bundle.expectation
+        out.append(
+            {
+                "slug": bundle.slug,
+                "title": bundle.title,
+                "created_at": bundle.created_at,
+                "summary": bundle.summary(),
+                "frames": len(bundle.frames),
+                "clips": len(bundle.clips),
+                "image_model": bundle.image_model,
+                "video_model": bundle.video_model,
+                "original_cost_usd": bundle.provenance.get("cost_usd", 0.0),
+                "replayable": not problems,
+                "problems": problems,
+                "winner_slot": expectation.winner_slot if expectation else None,
+            }
+        )
+    return out
+
+
+@app.post("/api/jobs/golden/{slug}")
+async def replay_golden_job(slug: str) -> dict:
+    """Replay a frozen job as a real job: no network, no credential, no spend.
+
+    Works whatever mode the app is in, deliberately.  The demo has to be one click
+    away without restarting the service into replay mode — and without arming the
+    live image provider, which flipping the money switch would also do.
+    """
+    try:
+        providers = P.get_providers(settings, storage, golden_set=slug)
+    except (P.ProviderUnavailable, P.GoldenError) as exc:
+        raise HTTPException(404, str(exc)) from exc
+
+    bundle = providers.golden.bundle if providers.golden else None
+    if bundle is None:  # pragma: no cover - get_providers always sets it for a slug
+        raise HTTPException(500, "golden providers resolved without a session")
+    problems = bundle.verify(storage)
+    if problems:
+        raise HTTPException(
+            409,
+            f"golden bundle {slug!r} cannot be replayed: " + "; ".join(problems),
+        )
+
+    import uuid
+
+    request = bundle.materialise_request(uuid.uuid4().hex[:16], storage)
+    record = await _launch(request, providers)
+    return {
+        "job_id": record.job_id,
+        "state": record.state.value,
+        "golden_set": slug,
+        "replaying": bundle.summary(),
+    }
 
 
 @app.post("/api/jobs")
