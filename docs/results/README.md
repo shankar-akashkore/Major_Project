@@ -1,6 +1,6 @@
 # Results: multi-candidate ad generation with learned ranking
 
-*Generated 2026-08-12 04:23 UTC by `scripts/report.py (at a327c7b)`. Do not edit — regenerate.*
+*Generated 2026-08-12 05:18 UTC by `scripts/report.py (at a1a187a)`. Do not edit — regenerate.*
 
 > **This document is not a result yet.** At least one table below rests on
 > simulated labels or stand-in features. Each such table says so above its
@@ -10,7 +10,6 @@
 ## Outstanding before these numbers stand
 
 - **image-stage prediction vs video-stage human preference** — no video-stage pairwise judgements exist. The video corpus is empty and no annotator has ranked a generated clip, so the image->video claim cannot be measured against human preference at all
-- **image-stage prediction vs video-stage prediction (diagnostic)** — 1 distinct generation set(s) on disk; 2 are needed before a correlation has an interval. Run more jobs end to end
 - **pairwise (trained), BT-target ridge, salience-only, aesthetic-only, LLM-as-judge, random; every feature group** — no human pairwise judgements exist. The annotation tool is built and verified against a simulated session, and no annotator has used it, so there is nothing to train or evaluate on. This is the project's critical path: collect judgements at /annotate/ui
 - **embedding, aesthetic, identity groups** — additionally needs notebooks/colab_embeddings.ipynb run on a GPU; no GPU has executed it, so these rows are pending rather than zero
 - **Premium-tier jobs** — the two fal contract smoke tests ($0.39) have not been run and no key has been supplied, so no paid generation exists and the golden set is frozen from synthetic references
@@ -20,18 +19,18 @@
 
 The project's claim is that ranking three candidates as *images* anticipates how they rank once animated, which is what makes early prediction worth anything: the video stage is where the money goes. The claim has two halves and only one of them is computable today.
 
-Rank movement between the stages, over 3 candidate placements: +0 → 3.
+Rank movement between the stages, over 9 candidate placements: -1 → 3, +0 → 4, +1 → 1, +2 → 1.
 
 ![Image-stage rank against video-stage rank](figures/stage-agreement.svg)
 
 **Image-stage to video-stage rank agreement**
 
-> ⚠️ **n = 1 generation sets · scored by stub heuristic · labels are simulated — NOT A RESULT · 1 replayed record(s) collapsed by content**
+> ⚠️ **n = 3 generation sets · scored by stub heuristic · labels are simulated — NOT A RESULT · 3 replayed record(s) collapsed by content**
 
 | Comparison | Mean Spearman ρ [95% CI] | Mean Kendall τ | Top-1 retention [95% CI] | Sets |
 | :--- | ---: | ---: | ---: | ---: |
+| image-stage prediction vs video-stage prediction (diagnostic) | +0.333 [-0.500, +1.000] | +0.333 | 0.333 [0.000, 1.000] | 3 |
 | **image-stage prediction vs video-stage human preference** | *pending — no video-stage pairwise judgements exist. The video corpus is empty and no annotator has ranked a generated clip, so the image->video claim cannot be measured against human preference at all* |  |  |  |
-| **image-stage prediction vs video-stage prediction (diagnostic)** | *pending — 1 distinct generation set(s) on disk; 2 are needed before a correlation has an interval. Run more jobs end to end* |  |  |  |
 
 ## The predictor against its baselines
 
@@ -80,13 +79,13 @@ The pipeline runs end to end: intake and product cutout, a sampled design space 
 
 **What has actually run**
 
-> ⚠️ **n = 2 completed job records · 1 generation sets · labels are simulated — NOT A RESULT · mock and replay tiers only; no premium generation has been paid for**
+> ⚠️ **n = 6 completed job records · 3 generation sets · labels are simulated — NOT A RESULT · mock and replay tiers only; no premium generation has been paid for**
 
 | Item | Value | Note |
 | :--- | ---: | :--- |
-| Job records on disk | 4 | all tiers |
-| Completed jobs | 2 | reached delivery |
-| Distinct generation sets | 1 | 1 replay(s) collapsed by candidate content |
+| Job records on disk | 8 | all tiers |
+| Completed jobs | 6 | reached delivery |
+| Distinct generation sets | 3 | 3 replay(s) collapsed by candidate content |
 | Total spend | $0.0000 | no API call has been made; mock mode is the default |
 | **Premium-tier jobs** | *pending — the two fal contract smoke tests ($0.39) have not been run and no key has been supplied, so no paid generation exists and the golden set is frozen from synthetic references* |  |
 | **Research-tier clips** | *pending — notebooks/colab_video.ipynb has not been run on a GPU, so the free clip corpus is empty and the tier comparison has no data* |  |

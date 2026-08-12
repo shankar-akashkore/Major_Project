@@ -1,10 +1,9 @@
 {
-  "generated_at": "2026-08-12T04:23:40.543545+00:00",
-  "revision": "a327c7b",
+  "generated_at": "2026-08-12T05:18:06.691119+00:00",
+  "revision": "a1a187a",
   "is_a_result": false,
   "outstanding": [
     "**image-stage prediction vs video-stage human preference** \u2014 no video-stage pairwise judgements exist. The video corpus is empty and no annotator has ranked a generated clip, so the image->video claim cannot be measured against human preference at all",
-    "**image-stage prediction vs video-stage prediction (diagnostic)** \u2014 1 distinct generation set(s) on disk; 2 are needed before a correlation has an interval. Run more jobs end to end",
     "**pairwise (trained), BT-target ridge, salience-only, aesthetic-only, LLM-as-judge, random; every feature group** \u2014 no human pairwise judgements exist. The annotation tool is built and verified against a simulated session, and no annotator has used it, so there is nothing to train or evaluate on. This is the project's critical path: collect judgements at /annotate/ui",
     "**embedding, aesthetic, identity groups** \u2014 additionally needs notebooks/colab_embeddings.ipynb run on a GPU; no GPU has executed it, so these rows are pending rather than zero",
     "**Premium-tier jobs** \u2014 the two fal contract smoke tests ($0.39) have not been run and no key has been supplied, so no paid generation exists and the golden set is frozen from synthetic references",

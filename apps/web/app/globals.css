@@ -1,0 +1,39 @@
+@import "tailwindcss";
+
+/**
+ * One colour carries meaning rather than style: `warn`.
+ *
+ * It marks anything that is not what it appears to be — a placeholder score, a
+ * quality check whose model has not landed, a mock generation, a reframe that lost
+ * content. The report's SVG figures use an amber for exactly the same job, so a
+ * screenshot of this UI and a figure in the write-up agree about what a caveat
+ * looks like.
+ */
+@theme {
+  --color-warn-50: #fffbeb;
+  --color-warn-400: #fbbf24;
+  --color-warn-500: #f59e0b;
+  --color-warn-950: #2a1c05;
+
+  --color-good-400: #34d399;
+  --color-good-500: #10b981;
+  --color-good-950: #04231a;
+
+  --color-bad-400: #f87171;
+  --color-bad-500: #ef4444;
+  --color-bad-950: #2a0a0a;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+body {
+  @apply bg-zinc-950 text-zinc-100 antialiased;
+  font-feature-settings: "tnum" 1;
+}
+
+/* Numbers in tables must line up to be comparable at a glance. */
+.tabular {
+  font-variant-numeric: tabular-nums;
+}

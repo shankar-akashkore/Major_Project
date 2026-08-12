@@ -93,8 +93,27 @@ transcription, and states in each table whether its labels are real:
 [docs/results/README.md](docs/results/README.md), which is generated and must not be
 edited.
 
+**The product UI.** `apps/web` is the wizard, the job board and the ranked results.
+It needs the API running beside it:
+
 ```bash
-.venv/bin/python -m pytest tests/ -q
+.venv/bin/python -m uvicorn adapi.main:app --port 8000
+pnpm --dir apps/web install && pnpm --dir apps/web dev
+```
+
+Its TypeScript types are generated from the Pydantic schema rather than written
+twice, and `--check` fails when the committed copy has drifted:
+
+```bash
+.venv/bin/python scripts/export_types.py --check --diff
+```
+
+Everything numeric renders through `lib/presentation.ts`, which will not let a stub
+score render as a prediction or an absence render as a zero — see
+[docs/ui-protocol.md](docs/ui-protocol.md).
+
+```bash
+.venv/bin/python -m pytest tests/ -q && pnpm --dir apps/web test && pnpm --dir apps/web typecheck
 ```
 
 ---
@@ -309,12 +328,34 @@ A cell is a value or a stated absence with a reason; there are no blanks. Every 
 and every figure carries its own label source, so a float pasted into a slide keeps
 its caveat.
 
+**The client's types are generated too.** Hand-written TypeScript mirroring the
+Pydantic models is the same unrecorded transcription step, and it fails the same way:
+a field is renamed in Python, the TypeScript still compiles because it describes a
+shape nothing produces, and the mismatch shows up as an empty panel weeks later.
+`scripts/export_types.py` writes `apps/web/lib/contract.ts` from the models, `--check`
+fails on drift, and the suite runs the same comparison. The generator also names each
+model's Python `@property` values as *not on the wire* — `JobRecord.job_id` and
+`RankedCandidate.rank_shift` among them — because pydantic serialises fields, not
+properties, and a template that interpolates one renders the string "undefined".
+
+**The screen cannot launder a caveat either.** Every number in the UI goes through
+`lib/presentation.ts`, which returns a stub score as a tagged union rather than a
+string, so the placeholder case has to be handled rather than skipped; renders a
+missing number as an em dash rather than a zero; and reports the quality gate's
+unimplemented checks as pending rather than passed, because a check whose model has
+not landed always passes. One job's rank movement is shown with the sentence saying
+it is an illustration and not the measurement.
+
 ---
 
 ## Layout
 
 ```
-apps/web/            Next.js product UI — not built yet
+apps/web/            Next.js 15 product UI: wizard, job board, both-stage
+                     ranked results, delivery and previews. No component
+                     library; tests run on `node --test`
+  lib/contract.ts    generated from adschema — do not edit
+  lib/presentation.ts  the honesty layer every number renders through
 services/api/        FastAPI: jobs, SSE progress, budget, media, annotation,
                      golden replay
   adapi/dev.html     single-file inspection harness (not the product UI)
@@ -333,7 +374,7 @@ scripts/             calibrate_gate.py, calibrate_intake.py, smoke_live.py,
                      generate_corpus.py, build_corpus.py, annotation_report.py,
                      extract_features.py, train_predictor.py,
                      freeze_golden.py, replay_golden.py,
-                     stage_agreement.py, report.py
+                     stage_agreement.py, report.py, export_types.py
 notebooks/           colab_embeddings.ipynb, colab_video.ipynb — the only parts
                      that need torch or a GPU
 docs/results/        the generated write-up: tables, LaTeX floats, figures.
@@ -559,6 +600,19 @@ Verified on this machine, and they shaped the architecture:
       environment ever gets 40 GB free, replacing it with matplotlib is a fair trade —
       but the honesty properties would have to survive the port: every interval drawn,
       a point with no interval drawn hollow, and the provenance line inside the image.
-- [ ] Next.js product UI. The FastAPI dev harness and the annotation tool cover
-      inspection, label collection and the golden replay; the wizard, job board and
-      ranked-results UI are still unbuilt.
+- [x] **The product UI is built** (week 16): `apps/web` is the wizard, the job board
+      and the both-stage ranked results, with the delivery renders, platform previews
+      and the bundle download. Its types are generated from the schema and
+      drift-checked; every number renders through an honesty layer that will not let a
+      stub read as a prediction. Verified in a browser against the API in mock mode
+      with the ledger at $0.0000 — see [docs/ui-protocol.md](docs/ui-protocol.md).
+- [ ] **The UI has no component tests.** The honesty layer has 38, run by
+      `node --test` with no framework; the components consuming it were driven in a
+      browser, which is evidence and not a regression test. A component that stopped
+      calling `scoreDisplay` and formatted a number directly would pass everything.
+- [ ] **`/api/config` and `/api/golden` return dicts, not models**, so their two
+      TypeScript shapes are hand-written and are the only ones in the app that can
+      drift silently. Making them Pydantic models closes the gap.
+- [ ] No authentication, and the job board does not paginate. Correct for a
+      single-developer dev loop and nothing else; Supabase Auth is in the plan and
+      unbuilt.
