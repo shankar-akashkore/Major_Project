@@ -80,6 +80,19 @@ see [docs/prediction-protocol.md](docs/prediction-protocol.md). The embedding
 features need a GPU and come from `notebooks/colab_embeddings.ipynb`; without them
 the run is a smaller experiment rather than a broken one.
 
+**The write-up.** `scripts/report.py` regenerates `docs/results/` — tables in markdown
+and as LaTeX floats, figures as SVG — from the evaluation objects rather than from a
+transcription, and states in each table whether its labels are real:
+
+```bash
+.venv/bin/python scripts/report.py && .venv/bin/python scripts/stage_agreement.py --verbose
+```
+
+`report.py --check` exits non-zero while any table still rests on simulated labels, so
+"is this quotable yet" is a command rather than a judgement call. See
+[docs/results/README.md](docs/results/README.md), which is generated and must not be
+edited.
+
 ```bash
 .venv/bin/python -m pytest tests/ -q
 ```
@@ -280,6 +293,22 @@ against the 8-10 s commitment from their bytes, and provider-versus-file drift i
 emitted as a job event. Concatenation seams are detected from the pixels, so a
 chained clip is identified whether or not the provider admits to one.
 
+**A replayed job is not a second observation.** The headline claim is measured per
+generation set, and every golden replay writes a fresh job record with a new id over
+bit-identical candidates — so keyed by job id, running the replay suite a dozen times
+before the viva would report a dozen sets in perfect agreement with a zero-width
+interval. `adml.stages` keys a set by the SHA-256 of its own candidates, so a replay
+collapses onto the job it replays and is reported as collapsed; two jobs over the same
+bytes that disagree on the ordering are a nondeterminism defect, not data.
+
+**No number reaches the report by hand.** `scripts/report.py` builds the tables and
+the figures from the same evaluation objects, in one command, because the single
+unrecorded step in any write-up is a number copied out of a terminal — and that is
+where a figure measured on simulated labels becomes a figure presented as measured.
+A cell is a value or a stated absence with a reason; there are no blanks. Every table
+and every figure carries its own label source, so a float pasted into a slide keeps
+its caveat.
+
 ---
 
 ## Layout
@@ -298,15 +327,19 @@ packages/providers/  provider ABCs, MockProvider, CostGovernor, ledger, storage,
 packages/ml/         numpy features, pair design, Bradley-Terry + metrics,
                      set-wise splits, the pairwise head, the evaluation harness,
                      ffmpeg video I/O, model persistence and serving,
-                     saliency-aware reframing, the audio mix
+                     saliency-aware reframing, the audio mix, the two-stage
+                     harvest, and the report's tables and SVG figures
 scripts/             calibrate_gate.py, calibrate_intake.py, smoke_live.py,
                      generate_corpus.py, build_corpus.py, annotation_report.py,
                      extract_features.py, train_predictor.py,
-                     freeze_golden.py, replay_golden.py
+                     freeze_golden.py, replay_golden.py,
+                     stage_agreement.py, report.py
 notebooks/           colab_embeddings.ipynb, colab_video.ipynb — the only parts
                      that need torch or a GPU
+docs/results/        the generated write-up: tables, LaTeX floats, figures.
+                     Regenerated, never edited
 fixtures/            uploads, generations, annotation corpus, golden demo set
-tests/               330 tests
+tests/               418 tests
 ```
 
 `packages/schema` imports no torch, no provider SDK and no DB driver, so it stays
@@ -501,6 +534,31 @@ Verified on this machine, and they shaped the architecture:
       machinery and not the output. The manifests are committed and the media is not
       (SHA-256 per asset, so a missing file is named) — back the media up with
       `freeze_golden.py --pack` before the viva rather than after.
+- [x] **The write-up is generated, not transcribed** (week 15): `scripts/report.py`
+      builds `docs/results/` — the tables in markdown and as LaTeX floats, the figures
+      as SVG — from the same objects the evaluation harness produced. A cell is a value
+      or a stated absence carrying its reason, every table declares whether its labels
+      are real, and `--check` exits non-zero while any of them do not. The LaTeX is
+      asserted to be ASCII, because a bare `ρ` in a heading is a hard pdflatex error in
+      a file nobody hand-checks. See
+      [docs/results-protocol.md](docs/results-protocol.md).
+- [x] **The headline claim now has a runner** (week 15): `scripts/stage_agreement.py`
+      harvests the paired image-stage and video-stage orderings out of the finished
+      jobs. `adml.evaluate.stage_agreement` had been written and unit-tested since
+      week 11 and nothing had ever computed it on real data. Sets are keyed by
+      candidate content, so a golden replay cannot inflate the sample.
+- [ ] **The headline number itself is still pending, and it is pending on people.**
+      What is computable today is image-stage prediction against *video-stage
+      prediction* — both from this codebase, over overlapping features, so they agree
+      partly by construction. That is reported as a diagnostic under a name that says
+      so. The claim needs pairwise judgements over generated *videos*: run
+      `notebooks/colab_video.ipynb` on a GPU, build the video corpus, then collect
+      judgements. Until then the report prints PENDING with the reason.
+- [ ] **Figures are drawn without matplotlib**, which is a disk-budget consequence
+      rather than a preference (`adml.figures`, SVG from the standard library). If the
+      environment ever gets 40 GB free, replacing it with matplotlib is a fair trade —
+      but the honesty properties would have to survive the port: every interval drawn,
+      a point with no interval drawn hollow, and the provenance line inside the image.
 - [ ] Next.js product UI. The FastAPI dev harness and the annotation tool cover
       inspection, label collection and the golden replay; the wizard, job board and
       ranked-results UI are still unbuilt.

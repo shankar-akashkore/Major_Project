@@ -31,6 +31,20 @@ Split by hardware requirement on purpose:
   window by saliency rather than by centring it, and mixing a licensed music bed to
   a stated loudness. Both report what they cost — a reframe discards content, and a
   bed without recorded provenance is refused outright.
+* :mod:`adml.stages` harvests the two-stage rank agreement out of finished jobs. It
+  identifies a generation set by the content of its candidates, because a golden
+  replay writes a new job record over identical bytes and counting those as
+  separate observations would manufacture the project's headline number.
+* :mod:`adml.figures` draws the report's figures as SVG from the standard library
+  alone. There is no matplotlib on this machine and buying one for four plots would
+  cost more disk than the parts of the project that have no alternative. Every
+  interval is drawn and every figure carries its own provenance line, so a plot
+  pasted into a slide arrives with its caveats attached.
+* :mod:`adml.report` turns the evaluation objects into tables in markdown and LaTeX.
+  It exists to remove the one unrecorded step in any report — a number copied from a
+  terminal into a document — which is where a figure measured on simulated labels
+  becomes a figure presented as measured. A cell is a number or a stated absence;
+  there are no blanks.
 """
 
 from . import (
@@ -41,11 +55,14 @@ from . import (
     evaluate,
     features,
     featureset,
+    figures,
     pairs,
     predictor,
     ranking,
+    report,
     serving,
     split,
+    stages,
     video,
 )
 
@@ -57,10 +74,13 @@ __all__ = [
     "evaluate",
     "features",
     "featureset",
+    "figures",
     "pairs",
     "predictor",
     "ranking",
+    "report",
     "serving",
     "split",
+    "stages",
     "video",
 ]
