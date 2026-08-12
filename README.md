@@ -36,10 +36,10 @@ python3 -m venv .venv && .venv/bin/python -m pip install -e ".[dev]"
 ```
 
 ```bash
-.venv/bin/python -m uvicorn adapi.main:app --reload --port 8077
+.venv/bin/python -m uvicorn adapi.main:app --reload --port 8000
 ```
 
-Open <http://localhost:8077> and press **Run demo job**. It runs the full
+Open <http://localhost:8000> and press **Run demo job**. It runs the full
 eight-stage pipeline against synthetic references, costs nothing, and needs no
 API keys.
 
@@ -64,7 +64,7 @@ To collect preference labels, build a corpus and share the comparison tool:
 .venv/bin/python scripts/generate_corpus.py --sets 20 && .venv/bin/python scripts/build_corpus.py --commit
 ```
 
-Then open <http://localhost:8077/api/annotate/ui>, or share that URL on your
+Then open <http://localhost:8000/api/annotate/ui>, or share that URL on your
 network. `scripts/annotation_report.py` says whether the labels are usable —
 see [docs/annotation-protocol.md](docs/annotation-protocol.md).
 
