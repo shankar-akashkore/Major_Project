@@ -31,6 +31,19 @@ DEFAULT_OUT = ROOT / "apps" / "web" / "lib" / "contract.ts"
 COMMAND = "scripts/export_types.py"
 
 
+def _label(path: Path) -> str:
+    """Repo-relative when it can be, the raw path otherwise.
+
+    ``relative_to`` raises for anything outside the repo, and it was raising
+    *after* the file had been written — a relative ``--out``, or a scratch path
+    used to inspect the output, reported a traceback for a run that succeeded.
+    """
+    try:
+        return str(path.relative_to(ROOT))
+    except ValueError:
+        return str(path)
+
+
 def _diff(committed: str, generated: str, path: Path) -> list[str]:
     return list(
         difflib.unified_diff(
@@ -54,7 +67,7 @@ def main() -> int:
     parser.add_argument("--diff", action="store_true", help="print the drift")
     args = parser.parse_args()
 
-    out = Path(args.out)
+    out = Path(args.out).resolve()
     generated = typescript.generate()
     committed = out.read_text(encoding="utf-8") if out.exists() else ""
 
@@ -64,22 +77,22 @@ def main() -> int:
             return 1
         if committed == generated:
             lines = generated.count("\n")
-            print(f"{out.relative_to(ROOT)} matches adschema ({lines} lines)")
+            print(f"{_label(out)} matches adschema ({lines} lines)")
             return 0
-        print(f"{out.relative_to(ROOT)} has drifted from adschema — run {COMMAND}")
+        print(f"{_label(out)} has drifted from adschema — run {COMMAND}")
         if args.diff:
             sys.stdout.writelines(_diff(committed, generated, out))
         return 1
 
     if committed == generated:
-        print(f"{out.relative_to(ROOT)} already current")
+        print(f"{_label(out)} already current")
         return 0
     if args.diff and committed:
         sys.stdout.writelines(_diff(committed, generated, out))
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(generated, encoding="utf-8")
     verb = "updated" if committed else "wrote"
-    print(f"{verb} {out.relative_to(ROOT)} ({generated.count(chr(10))} lines)")
+    print(f"{verb} {_label(out)} ({generated.count(chr(10))} lines)")
     return 0
 
 

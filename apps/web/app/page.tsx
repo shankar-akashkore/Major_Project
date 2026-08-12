@@ -53,6 +53,7 @@ import {
   type Platform,
   type Vertical,
 } from "@/lib/contract.ts";
+import { safeAreaSummary } from "@/lib/presentation.ts";
 
 export default function NewJobPage() {
   const router = useRouter();
@@ -235,9 +236,7 @@ export default function NewJobPage() {
                 label="Platform"
                 hint={
                   geometry
-                    ? `${geometry.aspect_ratio} · safe area ${Math.round(
-                        geometry.safe_area.top * 100,
-                      )}% top, ${Math.round(geometry.safe_area.bottom * 100)}% bottom`
+                    ? `${geometry.aspect_ratio} · safe area ${safeAreaSummary(geometry.safe_area)}`
                     : "Aspect ratio and safe areas follow from this."
                 }
               >

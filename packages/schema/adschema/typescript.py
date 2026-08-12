@@ -325,11 +325,17 @@ def generate() -> str:
         MAX_DURATION_S,
         MIN_DURATION_S,
         AdJobRequest,
+        AppConfig,
         BudgetStatus,
         DeliveryReport,
+        DeliveryResponse,
+        GoldenSummary,
         IntakeReport,
         JobRecord,
         JobResult,
+        JobSummary,
+        Launched,
+        LedgerResponse,
         RankedCandidate,
         SpendEntry,
         StageEvent,
@@ -345,6 +351,15 @@ def generate() -> str:
         DeliveryReport,
         IntakeReport,
         RankedCandidate,
+        # The HTTP envelopes. Roots in their own right rather than reachable from
+        # the models above: nothing in the pipeline returns them, so without this
+        # the routes the UI actually calls would be the only untyped ones left.
+        AppConfig,
+        GoldenSummary,
+        JobSummary,
+        Launched,
+        LedgerResponse,
+        DeliveryResponse,
     ]
     constants = {
         "MIN_DURATION_S": MIN_DURATION_S,

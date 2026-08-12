@@ -30,6 +30,7 @@ import {
   type JobRecord,
   type RankedCandidate,
   type ReframeReport,
+  type SafeAreaBox,
   type ScoreBreakdown,
   type Stage,
   type StageEvent,
@@ -345,6 +346,34 @@ export function budgetView(status: BudgetStatus): BudgetView {
 /** Candidate slot letters, matching `ShotBrief.slot_label`: 0 -> "A". */
 export function slotLetter(index: number): string {
   return String.fromCharCode("A".charCodeAt(0) + index);
+}
+
+// --- Platform geometry ---------------------------------------------------
+
+/**
+ * A platform's safe area as prose. Mirrors `SafeAreaBox.describe()`.
+ *
+ * Only the non-zero edges, in the Python's order. Two reasons the zeroes are left
+ * out and not printed as "0% left": a true statement that carries no information
+ * makes the two that matter harder to read, and this string sits in a form hint
+ * where there is room for one line.
+ *
+ * The wizard printed only top and bottom before the geometry was a model, because
+ * the dict it read had only those two keys. Reels chrome also covers 14% of the
+ * right edge, which is where a CTA ends up underneath the share button — the field
+ * existed in Python the whole time and never crossed the wire.
+ */
+export function safeAreaSummary(area: SafeAreaBox): string {
+  const edges: [string, number][] = [
+    ["top", area.top],
+    ["bottom", area.bottom],
+    ["left", area.left],
+    ["right", area.right],
+  ];
+  const parts = edges
+    .filter(([, value]) => value > 0)
+    .map(([name, value]) => `${Math.round(value * 100)}% ${name}`);
+  return parts.length ? parts.join(", ") : "none";
 }
 
 // --- Media ---------------------------------------------------------------

@@ -1,27 +1,29 @@
 /**
  * The FastAPI client.
  *
- * Two things here are deliberate.
- *
  * **Errors carry the server's own message.** FastAPI puts the useful text in
  * `detail`, and the two refusals this app can actually provoke are worth reading
  * verbatim: the consent gate's 422 explains which attestation is missing, and the
  * cost governor's refusal explains which cap was hit. A generic "request failed"
  * turns both into a mystery.
  *
- * **Two response shapes are hand-written, and marked.** `/api/config` and
- * `/api/golden` return ad-hoc dicts rather than Pydantic models, so
- * `scripts/export_types.py` has nothing to generate from and these cannot be
- * drift-checked. They are the exception, not the pattern — everything else comes
- * from `contract.ts`.
+ * **Nothing here is hand-written any more.** `/api/config` and `/api/golden` used
+ * to return ad-hoc dicts, so their types were transcribed into this file and could
+ * not be drift-checked — `docs/ui-protocol.md` §1 listed them as the exception to
+ * the rule the rest of the app follows. They are Pydantic models now
+ * (`adschema.api`), so every shape below comes from `contract.ts` and a renamed
+ * field fails `scripts/export_types.py --check` instead of blanking a panel.
  */
 
 import type {
-  AspectRatio,
+  AppConfig,
   BudgetStatus,
-  DeliveryReport,
+  DeliveryResponse,
+  GoldenSummary,
   JobRecord,
-  Platform,
+  JobSummary,
+  Launched,
+  LedgerResponse,
 } from "./contract.ts";
 import { resolveMediaUrl } from "./presentation.ts";
 
@@ -36,11 +38,19 @@ export const API_BASE = (process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8
 );
 
 export class ApiError extends Error {
-  constructor(
-    readonly status: number,
-    message: string,
-  ) {
+  /**
+   * Assigned in the body rather than declared as a constructor parameter property.
+   *
+   * `readonly status: number` in the signature is TypeScript that *emits code*, not
+   * a type to erase, and Node's strip-only loader refuses it outright. The component
+   * tests import this module, so the shorthand would have failed the whole test file
+   * with a syntax error a long way from its cause.
+   */
+  readonly status: number;
+
+  constructor(status: number, message: string) {
     super(message);
+    this.status = status;
     this.name = "ApiError";
   }
 }
@@ -80,76 +90,6 @@ async function errorMessage(response: Response): Promise<string> {
   }
 }
 
-// --- Hand-written response shapes ---------------------------------------
-// These two routes return dicts, so there is no model to generate from. If a key
-// here is wrong, nothing catches it but the screen.
-
-export type SafeAreaConfig = { top: number; bottom: number };
-
-export type PlatformConfig = {
-  aspect_ratio: AspectRatio;
-  safe_area: SafeAreaConfig;
-};
-
-/** `GET /api/config` — the mode the pipeline is in, and what it costs. */
-export type AppConfig = {
-  provider_mode: "mock" | "live" | "replay";
-  is_live: boolean;
-  is_replay: boolean;
-  image_provider: string;
-  video_provider: string;
-  golden_set: string | null;
-  banner: string;
-  platforms: Record<string, PlatformConfig>;
-};
-
-/** `GET /api/golden` — one frozen demo bundle. */
-export type GoldenBundle = {
-  slug: string;
-  title: string;
-  created_at: string;
-  summary: string;
-  frames: number;
-  clips: number;
-  image_model: string;
-  video_model: string;
-  original_cost_usd: number;
-  replayable: boolean;
-  problems: string[];
-  winner_slot: number | null;
-};
-
-/** `GET /api/jobs` — the board's row, which is not the whole record. */
-export type JobSummary = {
-  job_id: string;
-  state: string;
-  product_name: string;
-  platform: Platform;
-  created_at: string;
-  cost_usd: number;
-  winner: number | null;
-};
-
-/**
- * `GET /api/jobs/{id}/delivery`
- *
- * The envelope is hand-written; `delivery` inside it is the generated
- * `DeliveryReport`, so the part with all the fields is still drift-checked.
- */
-export type DeliveryResponse = {
-  job_id: string;
-  summary: string;
-  delivery: DeliveryReport;
-  download_url: string | null;
-};
-
-/** `GET /api/jobs/{id}/ledger` */
-export type LedgerResponse = {
-  job_id: string;
-  total_usd: number;
-  entries: Record<string, unknown>[];
-};
-
 // --- Routes --------------------------------------------------------------
 
 export const getConfig = () => request<AppConfig>("/api/config");
@@ -157,12 +97,10 @@ export const getBudget = () => request<BudgetStatus>("/api/budget");
 export const listJobs = (limit = 25) => request<JobSummary[]>(`/api/jobs?limit=${limit}`);
 export const getJob = (jobId: string) => request<JobRecord>(`/api/jobs/${jobId}`);
 export const getLedger = (jobId: string) => request<LedgerResponse>(`/api/jobs/${jobId}/ledger`);
-export const listGolden = () => request<GoldenBundle[]>("/api/golden");
+export const listGolden = () => request<GoldenSummary[]>("/api/golden");
 
 export const getDelivery = (jobId: string) =>
   request<DeliveryResponse>(`/api/jobs/${jobId}/delivery`);
-
-export type Launched = { job_id: string; state: string };
 
 export const replayGolden = (slug: string) =>
   request<Launched>(`/api/jobs/golden/${slug}`, { method: "POST" });

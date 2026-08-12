@@ -386,3 +386,21 @@ test("no asset gives no URL rather than a link to nowhere", () => {
   assert.equal(P.resolveMediaUrl(null, API), null);
   assert.equal(P.resolveMediaUrl({ key: "", url: null }, API), null);
 });
+
+// --- Platform geometry ---------------------------------------------------
+
+test("a safe area lists only the edges that platform chrome actually covers", () => {
+  // Instagram Reels: the right edge carries the action rail, and the wizard used to
+  // omit it because the API sent a two-key dict.
+  const reels = { top: 0.14, bottom: 0.2, left: 0, right: 0.14 };
+  assert.equal(P.safeAreaSummary(reels), "14% top, 20% bottom, 14% right");
+});
+
+test("an edge at zero is left out rather than printed as 0%", () => {
+  const feed = { top: 0.05, bottom: 0.05, left: 0, right: 0 };
+  assert.equal(P.safeAreaSummary(feed), "5% top, 5% bottom");
+});
+
+test("a platform with no chrome says none, not an empty string", () => {
+  assert.equal(P.safeAreaSummary({ top: 0, bottom: 0, left: 0, right: 0 }), "none");
+});

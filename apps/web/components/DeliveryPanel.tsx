@@ -14,7 +14,8 @@
  * reporting damage that did not happen.
  */
 
-import { bundleUrl, mediaUrl, type DeliveryResponse } from "@/lib/api.ts";
+import { bundleUrl, mediaUrl } from "@/lib/api.ts";
+import type { DeliveryResponse } from "@/lib/contract.ts";
 import { humanise, percent, reframeSummary } from "@/lib/presentation.ts";
 import { Badge, Card, Caveat, SectionTitle } from "./ui.tsx";
 

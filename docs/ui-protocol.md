@@ -64,12 +64,31 @@ beside a test that pins the arithmetic to the Python.
 `GateCheck.implemented` that a pending check always passes. Carrying them across
 puts the caveat in the tooltip of the person about to render the number.
 
-### What cannot be generated
+### The envelopes are generated too
 
-`GET /api/config` and `GET /api/golden` return ad-hoc dicts rather than models, so
-there is nothing to generate from and nothing to drift-check. Those two shapes are
-hand-written in `lib/api.ts` and marked as the exception. Making them Pydantic
-models would close the gap and is the obvious next change here.
+`GET /api/config`, `GET /api/golden`, the job-board row, the ledger and the delivery
+envelope used to return ad-hoc dicts. There was nothing to generate from, so
+`lib/api.ts` hand-wrote five types and they were the only shapes in the app that
+could drift silently — this section used to say so and call fixing it the obvious
+next change.
+
+They are models now (`adschema.api`), added to the generator's roots because
+nothing in the pipeline returns them: without being named as roots the routes the
+UI actually calls would have stayed the only untyped ones. `lib/api.ts` declares no
+shapes at all any more.
+
+Modelling the config found a field that had never crossed the wire. `SafeArea` is a
+four-tuple in Python — top, bottom, left, right — and the dict built by hand
+emitted two of them. Instagram Reels covers **14% of the right edge** with its
+action rail, which is exactly where a CTA ends up underneath the share button, and
+the wizard had been reporting `9:16 · safe area 14% top, 20% bottom` since the day
+it was written. The renderer had the real numbers the whole time; only the screen
+was missing them. That is the failure mode of a hand-assembled response, and it is
+not one a type checker can see.
+
+The tuple became `SafeAreaBox`, a model, for a related reason: a tuple crosses the
+wire as a positional array, and `safe_area[2]` on the client is the kind of reader
+that survives a reordering without complaining.
 
 ---
 
@@ -142,14 +161,50 @@ here would undo that on the last hop.
 
 ## 4. Tests without a test framework
 
-`pnpm test` is `node --test lib/*.test.ts`. Node 22 strips TypeScript types
-natively, so the honesty layer is tested with no framework, no transpiler and no
-config — and the files under test are the same files Next builds, rather than a
-second module graph that can disagree with the first.
+`pnpm test` is `node --test`, over `lib/*.test.ts` and `components/*.test.tsx`. Node
+22 strips TypeScript types natively, so the honesty layer needs no framework, no
+transpiler and no config — and the files under test are the same files Next builds,
+rather than a second module graph that can disagree with the first.
 
 The cost is that imports carry their extension (`./contract.ts`), which Node's ESM
 resolver requires; `allowImportingTsExtensions` in `tsconfig.json` makes TypeScript
 accept it, and is safe because the app never emits.
+
+### The components are tested, and JSX needed a loader
+
+Testing the honesty layer proved that `scoreDisplay` tags a placeholder. It proved
+nothing about anything on screen *reading* the tag, which is the whole risk: this
+document used to list "a component that stops calling `scoreDisplay` and formats a
+number directly would pass everything here" as a known limitation.
+
+The obstacle was that Node strips *types*, and `<div/>` is not a type — it is a
+syntax error. The options were a test framework carrying its own transform, or
+`tsx-loader.mjs`: two module hooks that resolve the `@/` alias and hand `.tsx` to
+the TypeScript compiler already installed. Thirty lines, no new dependency, same
+trade as `adml.figures` drawing SVG rather than installing matplotlib.
+
+The tests render with `react-dom/server` and assert on **sentences**, not structure,
+so moving a caveat into a different element passes and dropping it does not.
+Effects do not run, which costs nothing: none of these components fetch. `Shell` and
+the pages do, and are verified in a browser instead.
+
+One assertion is on the source rather than the output: **no component formats
+money.** `usd()` uses four decimal places for a recorded reason, and a component
+doing its own `toFixed(2)` would undo it somewhere no render test happened to look.
+It is not a ban on `toFixed` — `DeliveryPanel` formats LUFS with it, which is a
+loudness measurement and not money.
+
+Two things surfaced while wiring this up, both worth recording because neither was
+visible before:
+
+- `ApiError` declared `readonly status: number` as a constructor parameter — which
+  *emits code* rather than being a type to erase, and Node's strip-only loader
+  refuses it outright. Nothing had imported `lib/api.ts` under `node --test` before,
+  so the whole test file failed with a syntax error a long way from its cause.
+- A fixture used `verdict: "fail"`. The vocabulary is `GateVerdict` —
+  `pass | retry | reject` — and the generated union caught it. A hand-written type
+  would have accepted the string and the test would have passed while asserting on
+  a badge that can never render.
 
 Same trade as `adml.figures` drawing SVG rather than installing matplotlib, and the
 same reason: this machine has under 20 GB free and the project has already spent its
@@ -199,9 +254,13 @@ why the refusal exists. Verified both ways: with both boxes false the API return
 
 Against `uvicorn` in mock mode, with the ledger at `$0.0000` before and after:
 
-- **The wizard's derivations are live.** Platform `instagram_reels` shows
-  `9:16 · safe area 14% top, 20% bottom`, read from `/api/config` rather than
-  hardcoded. Every dropdown is populated from a generated `*_VALUES` array.
+- **The wizard's derivations are live, and now complete.** `instagram_reels` shows
+  `9:16 · safe area 14% top, 20% bottom, 14% right` — the right edge appearing for
+  the first time, from the modelled config. Switching platform re-derives it:
+  `instagram_feed` gives `4:5 · 5% top, 5% bottom`, `youtube_instream` gives
+  `16:9 · 5% top, 12% bottom`, `tiktok` gives `9:16 · 12% top, 22% bottom, 14% right`.
+  The zero edges are omitted rather than printed as `0% left`. Every dropdown is
+  populated from a generated `*_VALUES` array.
 - **A golden bundle replays in one click** and the replay's own drift check lands in
   the job's event log: *replay of 'aurora-reels' matches what was frozen*.
 - **The SSE stream is incremental**, not batched: 34 events at 34 distinct arrival
@@ -220,16 +279,64 @@ Against `uvicorn` in mock mode, with the ledger at `$0.0000` before and after:
 - **Intake advisories are real measurements** of the uploads: *looks out of focus or
   heavily upscaled (focus 0.34 of 1.0, below 0.35)*.
 
+Re-checked after the API became injectable, because a refactor of the wiring is
+exactly the change that breaks one route and no test:
+
+- **A job started from the wizard still runs end to end.** Image order `B › A › C`,
+  video order `B › A › C`, all three badges `= held (was #n)` with titles reading
+  `Image stage #n → video stage #n` — and the "one job is an illustration" sentence
+  underneath, which is the whole reason that screenshot is safe to show.
+- **The golden replay route still replays.** `POST /api/jobs/golden/aurora-reels`
+  returned its summary, the job completed, and the drift check landed in the job's own
+  event log: *replay of 'aurora-reels' matches what was frozen*. The budget read
+  `$0.0000` before and after.
+- **The reframes still describe themselves honestly**: `A crop would have kept 55%`
+  under the padded 16:9, `Kept 84% of the salient content — +10% against a centre
+  crop` under the 4:5.
+- **Money is still at four decimals** everywhere on the page: `$35.0000`, `$0.0000`,
+  `$2.5000`. Interactions were driven programmatically through the DOM, because
+  synthetic mouse clicks from the automation pane do not reach React's handlers in
+  this environment.
+
+---
+
+## 7. The routes have their own tests now
+
+The UI was tested and the pipeline was tested; the HTTP layer between them was not,
+which is exactly where a renamed field or a swallowed refusal survives a green
+suite. `adapi.main` built its settings, storage, ledger, job store and event bus at
+module scope, so importing it opened the real database and pointed at the real
+fixtures root — nothing could be isolated. `create_app(Services)` takes them as an
+argument instead, and `tests/test_api.py` runs the whole surface against a temporary
+directory and an in-memory ledger.
+
+Four of those tests are about claims rather than status codes:
+
+- **The consent gate refuses before a record exists.** A version that created the
+  job and then failed it would look almost identical in a browser and would leave a
+  row describing a person whose likeness there was no permission to process.
+- **A mock job has an empty ledger, not one that sums to zero.**
+  `CostGovernor.charge` returns before it reserves anything in any non-live mode, so
+  a free run *cannot* leave a row behind. That makes zero a structural fact rather
+  than an arithmetic coincidence — a row there would mean a live provider had leaked
+  into a free run.
+- **`/api/jobs/{id}/ledger` is a 404 for an unknown id**, which it was not before.
+  An empty ledger and a missing job are both zero dollars and mean opposite things:
+  the first says the run was free, the second says the question was about nothing.
+- **Two apps do not share state.** That is what the factory bought, and it is the
+  test that stops the module-level singletons coming back.
+
 ---
 
 ## Known limitations
 
-- **No component tests.** The honesty layer is tested; the components that consume
-  it are verified by having been driven in a browser, which is not a regression
-  test. A component that stops calling `scoreDisplay` and formats a number directly
-  would pass everything here.
-- **`/api/config` and `/api/golden` are hand-written types**, as above. They are the
-  only two shapes in the app that drift silently.
+- **The pages are not rendered in tests.** `Shell` and the three pages fetch on
+  mount, so they are covered by having been driven in a browser rather than by a
+  regression test. The components they compose are rendered and asserted.
+- **The SSE stream is tested for history and closure, not for latency.** That a
+  client connecting after a job finishes still receives the whole progress log is
+  asserted; that events arrive incrementally rather than in one batch was measured in
+  a browser (34 events at 34 distinct arrival times) and is not in the suite.
 - **The job board does not paginate.** It reads the 25 most recent and stops.
 - **No authentication.** Every job is visible to whoever opens the page, which is
   correct for a single-developer dev loop and nothing else. Supabase Auth is in the

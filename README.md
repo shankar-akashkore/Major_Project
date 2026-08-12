@@ -555,11 +555,14 @@ Verified on this machine, and they shaped the architecture:
       platform mockup previews drawn from the same safe area the score uses, an
       ffmpeg audio mix gated on a recorded licence, report cards and a download
       bundle. See [docs/delivery-protocol.md](docs/delivery-protocol.md).
-- [ ] **The API has no HTTP-level tests.** `/api/jobs/{id}/delivery` and
-      `/api/jobs/{id}/bundle` were verified by hand against the real ASGI app and the
-      pipeline behind them is covered, but the routes are not in the suite:
-      `adapi.main` builds its store, storage and ledger at module scope, so a test
-      cannot isolate them without a small refactor. Worth doing before the viva.
+- [x] **The API has HTTP-level tests** (week 17): `adapi.main` was building its
+      settings, storage, ledger, job store and event bus at module scope, so importing
+      it opened the real database and nothing above the pipeline could be isolated.
+      `create_app(Services)` takes them as an argument, and `tests/test_api.py` runs
+      the whole surface against a temporary root — the consent 422 *before* a record
+      exists, the multipart path through to a downloadable bundle, the 409 that
+      distinguishes "not delivered yet" from "no such job", the storage-root refusal,
+      and two apps proved not to share state.
 - [ ] **Supply a licensed music bed.** The mix is built and verified, and the project
       ships no audio, so a delivered clip is silent until a bed with recorded
       provenance is passed to the pipeline. The tone used in tests is flagged as a
@@ -606,13 +609,26 @@ Verified on this machine, and they shaped the architecture:
       drift-checked; every number renders through an honesty layer that will not let a
       stub read as a prediction. Verified in a browser against the API in mock mode
       with the ledger at $0.0000 — see [docs/ui-protocol.md](docs/ui-protocol.md).
-- [ ] **The UI has no component tests.** The honesty layer has 38, run by
-      `node --test` with no framework; the components consuming it were driven in a
-      browser, which is evidence and not a regression test. A component that stopped
-      calling `scoreDisplay` and formatted a number directly would pass everything.
-- [ ] **`/api/config` and `/api/golden` return dicts, not models**, so their two
-      TypeScript shapes are hand-written and are the only ones in the app that can
-      drift silently. Making them Pydantic models closes the gap.
+- [x] **The components are tested too** (week 17): 65 tests under `node --test`, and
+      the new 26 render the real components with `react-dom/server` and read the
+      markup, because the honesty layer being correct proved nothing about anything on
+      screen *reading* it. JSX needs a transform Node does not do, so `tsx-loader.mjs`
+      hands the file to the TypeScript compiler already installed — still no test
+      framework and still no second module graph. What is asserted is sentences: that a
+      placeholder is struck through and named, that a pending check does not become
+      "verified", that a padded render is not reported as a loss.
+- [x] **Nothing in the client is hand-written any more** (week 17): `/api/config`,
+      `/api/golden`, the job board row, the ledger and the delivery envelope are
+      Pydantic models in `adschema.api`, so the last five shapes that could drift
+      silently now come out of the generator. Modelling the config found a field that
+      had never crossed the wire: platform safe areas carry left and right edges, and
+      the wizard had been printing only top and bottom — Reels chrome covers 14% of the
+      right edge, which is where a CTA ends up under the share rail.
 - [ ] No authentication, and the job board does not paginate. Correct for a
       single-developer dev loop and nothing else; Supabase Auth is in the plan and
       unbuilt.
+- [ ] **The annotation router still keeps its store in a module global.** `create_app`
+      binds it, so one server and a sequential test run are both fine, but two apps in
+      one process share it — unlike everything else in `Services`. Its own tests call
+      the route functions directly rather than over HTTP, which is what the global is
+      holding up.

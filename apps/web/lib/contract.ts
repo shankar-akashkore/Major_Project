@@ -162,6 +162,14 @@ export const PLATFORM_VALUES: readonly Platform[] = [
   "facebook_feed",
 ];
 
+/** How generations are obtained. */
+export type ProviderMode = "mock" | "live" | "replay";
+export const PROVIDER_MODE_VALUES: readonly ProviderMode[] = [
+  "mock",
+  "live",
+  "replay",
+];
+
 /** The eight pipeline stages, in order. Emitted over SSE for progress. */
 export type Stage =
   | "intake"
@@ -264,6 +272,30 @@ export interface AdJobRequest {
   seed: number;
   consent: ConsentAttestation;
   tier: Tier;
+}
+
+/** What the UI needs to render honestly: the mode, and what it costs. */
+export interface AppConfig {
+  provider_mode: ProviderMode;
+  /** True only when real provider calls are armed. */
+  is_live: boolean;
+  /** True when output comes from a frozen bundle. */
+  is_replay: boolean;
+  image_provider: string;
+  video_provider: string;
+  /** Slug replayed in replay mode, else null. */
+  golden_set: string | null;
+  /**
+   * The settings banner verbatim. It names the providers actually wired up, which is
+   * the difference between 'live mode' and 'live mode, but the video provider fell
+   * back to a mock'.
+   */
+  banner: string;
+  /**
+   * Every platform's derived geometry, so the wizard reads it rather than hardcoding a
+   * ratio that then disagrees with the renderer.
+   */
+  platforms: Partial<Record<Platform, PlatformProfile>>;
 }
 
 /**
@@ -376,6 +408,15 @@ export interface DeliveryReport {
   warnings: string[];
 }
 
+/** Stage 8's output on its own, without re-fetching the whole record. */
+export interface DeliveryResponse {
+  job_id: string;
+  summary: string;
+  delivery: DeliveryReport;
+  /** Null until the bundle has been written. */
+  download_url: string | null;
+}
+
 /** One sampled coordinate in the creative design space. */
 export interface DesignPoint {
   /** Candidate slot this point belongs to. (at least 0) */
@@ -427,6 +468,30 @@ export interface GateResult {
   checks: GateCheck[];
   /** 1 = first try, 2 = after the one retry. (at least 1) */
   attempt: number;
+}
+
+/** One frozen demo bundle, as the job board lists it. */
+export interface GoldenSummary {
+  slug: string;
+  title: string;
+  /** ISO-8601, as recorded in the bundle manifest. */
+  created_at: string;
+  summary: string;
+  /** At least 0. */
+  frames: number;
+  /** At least 0. */
+  clips: number;
+  image_model: string;
+  video_model: string;
+  /** What the bundle cost when it was frozen. A replay costs zero. (at least 0.0) */
+  original_cost_usd: number;
+  replayable: boolean;
+  problems: string[];
+  /**
+   * Candidate slot the frozen run ranked first, when the bundle records an expectation
+   * to check the replay against.
+   */
+  winner_slot: number | null;
 }
 
 /** One generated ad frame. */
@@ -505,6 +570,44 @@ export interface JobResult {
   total_cost_usd: number;
 }
 
+/** A row on the job board, which is deliberately not the whole record. */
+export interface JobSummary {
+  job_id: string;
+  state: JobState;
+  product_name: string;
+  platform: Platform;
+  /** ISO-8601 of the request, not of the result. */
+  created_at: string;
+  /** At least 0.0. */
+  cost_usd: number;
+  /** Source image index of the top-ranked video, if ranked. */
+  winner: number | null;
+}
+
+/** Acknowledgement of a job that has been queued but has not run yet. */
+export interface Launched {
+  job_id: string;
+  state: JobState;
+  /** Set when this job is a replay of a frozen bundle. */
+  golden_set: string | null;
+  /** Summary of the bundle being replayed, if any. */
+  replaying: string | null;
+}
+
+/** Every charge attributed to one job. */
+export interface LedgerResponse {
+  job_id: string;
+  /** At least 0.0. */
+  total_usd: number;
+  entries: SpendEntry[];
+}
+
+/** Geometry the UI derives from the chosen platform rather than asking for. */
+export interface PlatformProfile {
+  aspect_ratio: AspectRatio;
+  safe_area: SafeAreaBox;
+}
+
 /** A video candidate placed in the final ordering, with its explanation. */
 // derived (not on the wire): rank_shift
 export interface RankedCandidate {
@@ -573,6 +676,18 @@ export interface ReframeReport {
    */
   tracking_gain: number;
   note: string;
+}
+
+/** Fractions of each edge that platform chrome may cover. */
+export interface SafeAreaBox {
+  /** Range 0.0–1.0. */
+  top: number;
+  /** Range 0.0–1.0. */
+  bottom: number;
+  /** Range 0.0–1.0. */
+  left: number;
+  /** Range 0.0–1.0. */
+  right: number;
 }
 
 /** Predicted performance, decomposed. */

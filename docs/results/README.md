@@ -1,6 +1,6 @@
 # Results: multi-candidate ad generation with learned ranking
 
-*Generated 2026-08-12 05:18 UTC by `scripts/report.py (at a1a187a)`. Do not edit — regenerate.*
+*Generated 2026-08-12 10:04 UTC by `scripts/report.py (at 55bd565)`. Do not edit — regenerate.*
 
 > **This document is not a result yet.** At least one table below rests on
 > simulated labels or stand-in features. Each such table says so above its
@@ -25,7 +25,7 @@ Rank movement between the stages, over 9 candidate placements: -1 → 3, +0 → 
 
 **Image-stage to video-stage rank agreement**
 
-> ⚠️ **n = 3 generation sets · scored by stub heuristic · labels are simulated — NOT A RESULT · 3 replayed record(s) collapsed by content**
+> ⚠️ **n = 3 generation sets · scored by stub heuristic · labels are simulated — NOT A RESULT · 5 replayed record(s) collapsed by content**
 
 | Comparison | Mean Spearman ρ [95% CI] | Mean Kendall τ | Top-1 retention [95% CI] | Sets |
 | :--- | ---: | ---: | ---: | ---: |
@@ -79,13 +79,13 @@ The pipeline runs end to end: intake and product cutout, a sampled design space 
 
 **What has actually run**
 
-> ⚠️ **n = 6 completed job records · 3 generation sets · labels are simulated — NOT A RESULT · mock and replay tiers only; no premium generation has been paid for**
+> ⚠️ **n = 8 completed job records · 3 generation sets · labels are simulated — NOT A RESULT · mock and replay tiers only; no premium generation has been paid for**
 
 | Item | Value | Note |
 | :--- | ---: | :--- |
-| Job records on disk | 8 | all tiers |
-| Completed jobs | 6 | reached delivery |
-| Distinct generation sets | 3 | 3 replay(s) collapsed by candidate content |
+| Job records on disk | 10 | all tiers |
+| Completed jobs | 8 | reached delivery |
+| Distinct generation sets | 3 | 5 replay(s) collapsed by candidate content |
 | Total spend | $0.0000 | no API call has been made; mock mode is the default |
 | **Premium-tier jobs** | *pending — the two fal contract smoke tests ($0.39) have not been run and no key has been supplied, so no paid generation exists and the golden set is frozen from synthetic references* |  |
 | **Research-tier clips** | *pending — notebooks/colab_video.ipynb has not been run on a GPU, so the free clip corpus is empty and the tier comparison has no data* |  |

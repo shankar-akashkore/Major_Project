@@ -23,8 +23,8 @@ import { ImageStage } from "@/components/ImageStage.tsx";
 import { EventLog, StageProgress } from "@/components/StageProgress.tsx";
 import { VideoStage } from "@/components/VideoStage.tsx";
 import { Badge, Card, Caveat, ErrorNote, SectionTitle } from "@/components/ui.tsx";
-import { getDelivery, type DeliveryResponse } from "@/lib/api.ts";
-import type { IntakeReport } from "@/lib/contract.ts";
+import { getDelivery } from "@/lib/api.ts";
+import type { DeliveryResponse, IntakeReport } from "@/lib/contract.ts";
 import { useJobStream } from "@/lib/hooks.ts";
 import { allStub, humanise, isTerminal, percent, seconds, usd } from "@/lib/presentation.ts";
 

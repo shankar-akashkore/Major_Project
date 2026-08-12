@@ -1,6 +1,6 @@
 {
-  "generated_at": "2026-08-12T05:18:06.691119+00:00",
-  "revision": "a1a187a",
+  "generated_at": "2026-08-12T10:04:39.746314+00:00",
+  "revision": "55bd565",
   "is_a_result": false,
   "outstanding": [
     "**image-stage prediction vs video-stage human preference** \u2014 no video-stage pairwise judgements exist. The video corpus is empty and no annotator has ranked a generated clip, so the image->video claim cannot be measured against human preference at all",
