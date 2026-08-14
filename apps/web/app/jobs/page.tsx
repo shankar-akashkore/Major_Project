@@ -26,7 +26,7 @@ import {
 } from "@/components/ui.tsx";
 import { listGolden, listJobs, replayGolden } from "@/lib/api.ts";
 import { useAsync } from "@/lib/hooks.ts";
-import { slotLetter, usd } from "@/lib/presentation.ts";
+import { pageSummary, slotLetter, usd } from "@/lib/presentation.ts";
 
 const STATE_TONE: Record<string, Tone> = {
   completed: "good",
@@ -36,12 +36,19 @@ const STATE_TONE: Record<string, Tone> = {
   refused_over_budget: "bad",
 };
 
+/** Rows per page. Small enough that the table fits a laptop screen without scrolling. */
+const PAGE_SIZE = 25;
+
 export default function JobsPage() {
   const router = useRouter();
-  const jobs = useAsync(listJobs, []);
+  const [offset, setOffset] = useState(0);
+  const jobs = useAsync(() => listJobs(PAGE_SIZE, offset), [offset]);
   const golden = useAsync(listGolden, []);
   const [replaying, setReplaying] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  const page = jobs.data;
+  const hasMore = page ? page.offset + page.jobs.length < page.total : false;
 
   async function replay(slug: string) {
     setReplaying(slug);
@@ -132,14 +139,10 @@ export default function JobsPage() {
       </section>
 
       <section>
-        <SectionTitle hint={jobs.data ? `${jobs.data.length} most recent` : undefined}>
-          Recent jobs
-        </SectionTitle>
+        <SectionTitle hint={page ? pageSummary(page) : undefined}>Recent jobs</SectionTitle>
         {jobs.error ? <ErrorNote>{jobs.error}</ErrorNote> : null}
-        {jobs.data && jobs.data.length === 0 ? (
-          <Empty>No jobs yet. Start one from “New job”.</Empty>
-        ) : null}
-        {jobs.data && jobs.data.length > 0 ? (
+        {page && page.total === 0 ? <Empty>No jobs yet. Start one from “New job”.</Empty> : null}
+        {page && page.jobs.length > 0 ? (
           <Card className="overflow-hidden">
             <table className="w-full text-left text-sm">
               <thead className="border-b border-zinc-800 bg-zinc-900/60 text-[11px] tracking-wide text-zinc-400 uppercase">
@@ -153,7 +156,7 @@ export default function JobsPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-800">
-                {jobs.data.map((job) => (
+                {page.jobs.map((job) => (
                   <tr key={job.job_id} className="transition hover:bg-zinc-900">
                     <td className="px-4 py-2">
                       <Link href={`/jobs/${job.job_id}`} className="hover:underline">
@@ -183,6 +186,26 @@ export default function JobsPage() {
               </tbody>
             </table>
           </Card>
+        ) : null}
+
+        {page && (page.offset > 0 || hasMore) ? (
+          <div className="mt-3 flex items-center justify-between gap-4">
+            <Button
+              variant="ghost"
+              onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}
+              disabled={page.offset === 0 || jobs.loading}
+            >
+              ← Newer
+            </Button>
+            <span className="text-[11px] text-zinc-500 tabular">{pageSummary(page)}</span>
+            <Button
+              variant="ghost"
+              onClick={() => setOffset(offset + PAGE_SIZE)}
+              disabled={!hasMore || jobs.loading}
+            >
+              Older →
+            </Button>
+          </div>
         ) : null}
       </section>
     </div>

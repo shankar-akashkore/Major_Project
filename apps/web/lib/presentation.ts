@@ -376,6 +376,24 @@ export function safeAreaSummary(area: SafeAreaBox): string {
   return parts.length ? parts.join(", ") : "none";
 }
 
+/**
+ * What the job board is showing, out of what exists.
+ *
+ * The board used to print "N most recent" from the array's own length, which is
+ * true and useless: it says how many rows were drawn, never how many were left
+ * out. With 40 jobs run and a cap of 25, the count read "25 most recent" and the
+ * fifteen missing ones had nothing on screen at all.
+ *
+ * Says "N jobs" when the page is the whole store, because a range is noise when
+ * there is nothing outside it.
+ */
+export function pageSummary(page: { jobs: unknown[]; total: number; offset: number }): string {
+  const shown = page.jobs.length;
+  if (shown === page.total) return `${page.total} ${page.total === 1 ? "job" : "jobs"}`;
+  // 1-indexed and inclusive: this is a sentence for a person, not a slice.
+  return `${page.offset + 1}–${page.offset + shown} of ${page.total}`;
+}
+
 // --- Media ---------------------------------------------------------------
 
 /**

@@ -22,6 +22,11 @@ dist/
 
 # Local data — media must live in object storage, never in git
 *.db
+# WAL sidecars. `adproviders.db` opens SQLite in WAL mode so concurrent jobs stop
+# losing writes, and WAL puts the pending pages in `-wal` and its index in `-shm`
+# next to the database. They appear the moment the server starts.
+*.db-wal
+*.db-shm
 *.sqlite3
 fixtures/uploads/*
 fixtures/generations/*

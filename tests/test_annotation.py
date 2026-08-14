@@ -396,17 +396,17 @@ async def test_enrolment_is_refused_without_consent(store):
     """Classmates' judgements are human-subject data going into a report."""
     from fastapi import HTTPException
 
-    annotate.bind(store, rng=random.Random(0))
+    ann = annotate.Annotating(store, random.Random(0))
     with pytest.raises(HTTPException) as caught:
-        await annotate.enrol(annotate.EnrolRequest(label="nope", agreed_to_research_use=False))
+        await annotate.enrol(ann, annotate.EnrolRequest(label="nope", agreed_to_research_use=False))
     assert caught.value.status_code == 422
     assert "Consent is required" in caught.value.detail
 
 
 async def test_enrolment_returns_an_id_that_can_annotate(store):
-    annotate.bind(store, rng=random.Random(0))
+    ann = annotate.Annotating(store, random.Random(0))
     profile = await annotate.enrol(
-        annotate.EnrolRequest(label="Ana", cohort="classmate", agreed_to_research_use=True)
+        ann, annotate.EnrolRequest(label="Ana", cohort="classmate", agreed_to_research_use=True)
     )
     assert profile.may_annotate
     assert await store.get_annotator(profile.annotator_id) is not None
@@ -418,9 +418,11 @@ async def test_served_pair_reveals_nothing_about_itself(store):
     An annotator who can tell which trials are catch trials can pass the screen
     while clicking through everything else.
     """
-    annotate.bind(store, rng=random.Random(0))
-    profile = await annotate.enrol(annotate.EnrolRequest(label="Ana", agreed_to_research_use=True))
-    served = await annotate.next_pair(profile.annotator_id)
+    ann = annotate.Annotating(store, random.Random(0))
+    profile = await annotate.enrol(
+        ann, annotate.EnrolRequest(label="Ana", agreed_to_research_use=True)
+    )
+    served = await annotate.next_pair(ann, profile.annotator_id)
     assert served is not None
 
     payload = served.model_dump()
@@ -432,25 +434,28 @@ async def test_served_pair_reveals_nothing_about_itself(store):
 
 
 async def test_judging_records_and_advances(store):
-    annotate.bind(store, rng=random.Random(0))
-    profile = await annotate.enrol(annotate.EnrolRequest(label="Ana", agreed_to_research_use=True))
-    first = await annotate.next_pair(profile.annotator_id)
+    ann = annotate.Annotating(store, random.Random(0))
+    profile = await annotate.enrol(
+        ann, annotate.EnrolRequest(label="Ana", agreed_to_research_use=True)
+    )
+    first = await annotate.next_pair(ann, profile.annotator_id)
     assert first is not None
     assert first.judged_by_you == 0
 
     result = await annotate.judge(
+        ann,
         annotate.JudgeRequest(
             annotator_id=profile.annotator_id,
             pair_id=first.pair_id,
             choice=Choice.RIGHT,
             latency_ms=1800,
-        )
+        ),
     )
     assert "recorded" in result
     # The showing index is deliberately absent, so no future UI can reveal a repeat.
     assert "showing" not in result
 
-    second = await annotate.next_pair(profile.annotator_id)
+    second = await annotate.next_pair(ann, profile.annotator_id)
     assert second is not None
     assert second.judged_by_you == 1
     assert second.pair_id != first.pair_id
@@ -459,9 +464,9 @@ async def test_judging_records_and_advances(store):
 async def test_an_unknown_annotator_is_a_404(store):
     from fastapi import HTTPException
 
-    annotate.bind(store, rng=random.Random(0))
+    ann = annotate.Annotating(store, random.Random(0))
     with pytest.raises(HTTPException) as caught:
-        await annotate.next_pair("not-enrolled")
+        await annotate.next_pair(ann, "not-enrolled")
     assert caught.value.status_code == 404
 
 

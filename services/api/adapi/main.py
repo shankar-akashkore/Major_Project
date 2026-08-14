@@ -22,11 +22,10 @@ The module-level ``app`` is still what ``uvicorn adapi.main:app`` loads.  Buildi
 it constructs SQLAlchemy engines, which do not connect until the lifespan runs, so
 an import is cheap and touches no database.
 
-One sharp edge is left deliberately: the annotation router keeps its store in a
-module global (``annotate.bind``), because its own tests call those route functions
-directly rather than over HTTP.  ``create_app`` binds it, so the last app created
-in a process owns it.  That is fine for one server and for a sequential test run,
-and it is the next thing to fix if either of those stops being true.
+The annotation router used to be the one exception, keeping its store in a module
+global that the last-created app overwrote.  It now takes its state from
+``app.state`` too — see :func:`adapi.annotate.attach` — so no dependency in this
+service outlives the application that owns it.
 """
 
 from __future__ import annotations
@@ -49,6 +48,7 @@ from adschema import (
     ConsentAttestation,
     DeliveryResponse,
     GoldenSummary,
+    JobPage,
     JobRecord,
     JobState,
     JobSummary,
@@ -63,7 +63,17 @@ from adschema import (
     Vertical,
 )
 from adworker import Pipeline
-from fastapi import APIRouter, Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi import (
+    APIRouter,
+    Depends,
+    FastAPI,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    Request,
+    UploadFile,
+)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, Response, StreamingResponse
 
@@ -170,7 +180,7 @@ def create_app(services: Services | None = None) -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
-    annotate.bind(app.state.services.annotations)
+    annotate.attach(app, app.state.services.annotations)
     app.include_router(annotate.router)
     app.include_router(router)
     return app
@@ -469,9 +479,20 @@ async def create_job(
 
 
 @router.get("/api/jobs")
-async def list_jobs(svc: Svc, limit: int = 25) -> list[JobSummary]:
-    records = await svc.store.list_recent(limit)
-    return [
+async def list_jobs(
+    svc: Svc,
+    limit: int = Query(default=25, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+) -> JobPage:
+    """One page of the board, plus the total it came from.
+
+    ``limit`` is capped at 100 rather than left open. Every row carries a rendered
+    summary, and a client asking for all of them would serialise the whole store
+    into one response — the sort of request that is fine until the day the store is
+    large, which is the day it is hardest to fix.
+    """
+    records, total = await svc.store.page(limit, offset)
+    rows = [
         JobSummary(
             job_id=r.job_id,
             state=r.state,
@@ -485,6 +506,7 @@ async def list_jobs(svc: Svc, limit: int = 25) -> list[JobSummary]:
         )
         for r in records
     ]
+    return JobPage(jobs=rows, total=total, limit=limit, offset=offset)
 
 
 @router.get("/api/jobs/{job_id}", response_model=JobRecord)

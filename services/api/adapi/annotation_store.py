@@ -32,6 +32,7 @@ import random
 from collections import defaultdict
 from statistics import median
 
+from adproviders import open_database, write
 from adschema import (
     MIN_PLAUSIBLE_LATENCY_MS,
     AnnotatorProfile,
@@ -57,7 +58,7 @@ from sqlalchemy import (
     func,
     select,
 )
-from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncEngine
 
 METADATA = MetaData()
 
@@ -246,7 +247,7 @@ class AnnotationStore:
 
     @classmethod
     def from_url(cls, url: str) -> AnnotationStore:
-        return cls(create_async_engine(url, future=True))
+        return cls(open_database(url))
 
     async def create_all(self) -> None:
         async with self.engine.begin() as conn:
@@ -387,16 +388,19 @@ class AnnotationStore:
     # --- Annotators --------------------------------------------------------
 
     async def enrol(self, profile: AnnotatorProfile) -> AnnotatorProfile:
-        async with self.engine.begin() as conn:
-            await conn.execute(
-                annotators.insert().values(
-                    annotator_id=profile.annotator_id,
-                    label=profile.label,
-                    cohort=profile.cohort,
-                    agreed_to_research_use=profile.agreed_to_research_use,
-                    created_at=profile.created_at,
-                )
-            )
+        # Through `write` because enrolment and judging are the two routes several
+        # people hit at once — an annotation session is a room full of classmates
+        # clicking, which is the only genuinely concurrent traffic this app sees.
+        await write(
+            self.engine,
+            annotators.insert().values(
+                annotator_id=profile.annotator_id,
+                label=profile.label,
+                cohort=profile.cohort,
+                agreed_to_research_use=profile.agreed_to_research_use,
+                created_at=profile.created_at,
+            ),
+        )
         return profile
 
     async def get_annotator(self, annotator_id: str) -> AnnotatorProfile | None:
@@ -549,19 +553,19 @@ class AnnotationStore:
             latency_ms=max(latency_ms, 0),
             showing=prior,
         )
-        async with self.engine.begin() as conn:
-            await conn.execute(
-                judgements.insert().values(
-                    judgement_id=judgement.judgement_id,
-                    pair_id=judgement.pair_id,
-                    annotator_id=judgement.annotator_id,
-                    shown_left=judgement.shown_left,
-                    choice=judgement.choice.value,
-                    latency_ms=judgement.latency_ms,
-                    showing=judgement.showing,
-                    at=judgement.at,
-                )
-            )
+        await write(
+            self.engine,
+            judgements.insert().values(
+                judgement_id=judgement.judgement_id,
+                pair_id=judgement.pair_id,
+                annotator_id=judgement.annotator_id,
+                shown_left=judgement.shown_left,
+                choice=judgement.choice.value,
+                latency_ms=judgement.latency_ms,
+                showing=judgement.showing,
+                at=judgement.at,
+            ),
+        )
         return judgement
 
     async def list_judgements(self, *, annotator_id: str | None = None) -> list[Judgement]:

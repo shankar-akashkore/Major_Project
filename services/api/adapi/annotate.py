@@ -16,15 +16,26 @@ a judgement that misdescribes what was on screen.
 
 Enrolment refuses without ``agreed_to_research_use``.  These are classmates'
 judgements going into a report, and the opt-in is the ethics section's evidence.
+
+**The store arrives per request, not per process.**  This router used to keep its
+store and its RNG in module globals set by ``bind()``, so the last application
+created in a process owned them — two apps in one test run shared an annotation
+database whatever their own settings said, and a test that seeded the RNG changed
+the serving order for every test after it.  :class:`Annotating` is now attached to
+``app.state`` by :func:`attach` and injected like any other dependency.  It is
+deliberately *not* ``adapi.main.Services``: this router must stay importable
+without pulling in the pipeline, and ``main`` imports this module.
 """
 
 from __future__ import annotations
 
+import dataclasses
 import random
 from pathlib import Path
+from typing import Annotated
 
 from adschema import AnnotatorProfile, Choice, CorpusStats
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 
@@ -32,26 +43,36 @@ from .annotation_store import AnnotationStore
 
 router = APIRouter(prefix="/api/annotate", tags=["annotation"])
 
-#: Set by the app at startup. A module-level handle keeps the router importable
-#: without a database, which the tests rely on.
-_store: AnnotationStore | None = None
 
-#: Serving randomness. Seeded per process rather than per request so a test can
-#: make the repeat and catch injection deterministic.
-_rng = random.Random()
+@dataclasses.dataclass(slots=True)
+class Annotating:
+    """What the annotation routes need: somewhere to write, and serving randomness.
+
+    The RNG is held rather than taken fresh per request because the repeat and
+    catch-trial injection is a property of a *session* — a test seeds it once and
+    gets a deterministic sequence of trials, which is the only way to assert that
+    a repeat comes back at all.
+    """
+
+    store: AnnotationStore
+    rng: random.Random = dataclasses.field(default_factory=random.Random)
 
 
-def bind(store: AnnotationStore, *, rng: random.Random | None = None) -> None:
-    global _store, _rng
-    _store = store
-    if rng is not None:
-        _rng = rng
+def attach(app: FastAPI, store: AnnotationStore, *, rng: random.Random | None = None) -> Annotating:
+    """Give one application its annotation state. Returns it for tests to hold."""
+    state = Annotating(store=store, rng=rng or random.Random())
+    app.state.annotating = state
+    return state
 
 
-def _require_store() -> AnnotationStore:
-    if _store is None:  # pragma: no cover - wiring error, not a runtime path
+def _annotating(request: Request) -> Annotating:
+    state = getattr(request.app.state, "annotating", None)
+    if state is None:  # pragma: no cover - wiring error, not a runtime path
         raise HTTPException(503, "annotation store is not configured")
-    return _store
+    return state
+
+
+Ann = Annotated[Annotating, Depends(_annotating)]
 
 
 class EnrolRequest(BaseModel):
@@ -87,15 +108,14 @@ class NextPair(BaseModel):
 
 
 @router.post("/enrol", response_model=AnnotatorProfile)
-async def enrol(body: EnrolRequest) -> AnnotatorProfile:
+async def enrol(ann: Ann, body: EnrolRequest) -> AnnotatorProfile:
     if not body.agreed_to_research_use:
         raise HTTPException(
             422,
             "Consent is required: judgements are anonymised and used only as research "
             "data for this project's evaluation.",
         )
-    store = _require_store()
-    return await store.enrol(
+    return await ann.store.enrol(
         AnnotatorProfile(
             label=body.label.strip(),
             cohort=body.cohort.strip(),
@@ -105,15 +125,15 @@ async def enrol(body: EnrolRequest) -> AnnotatorProfile:
 
 
 @router.get("/next/{annotator_id}", response_model=NextPair | None)
-async def next_pair(annotator_id: str) -> NextPair | None:
-    store = _require_store()
+async def next_pair(ann: Ann, annotator_id: str) -> NextPair | None:
+    store = ann.store
     profile = await store.get_annotator(annotator_id)
     if profile is None:
         raise HTTPException(404, f"no annotator {annotator_id!r}")
     if not profile.may_annotate:  # pragma: no cover - enrolment refuses these
         raise HTTPException(403, "this annotator has not consented to research use")
 
-    chosen = await store.next_pair(annotator_id, rng=_rng)
+    chosen = await store.next_pair(annotator_id, rng=ann.rng)
     if chosen is None:
         return None
     pair, left_item, _showing = chosen
@@ -130,8 +150,8 @@ async def next_pair(annotator_id: str) -> NextPair | None:
 
 
 @router.post("/judge")
-async def judge(body: JudgeRequest) -> dict:
-    store = _require_store()
+async def judge(ann: Ann, body: JudgeRequest) -> dict:
+    store = ann.store
     profile = await store.get_annotator(body.annotator_id)
     if profile is None:
         raise HTTPException(404, f"no annotator {body.annotator_id!r}")
@@ -150,18 +170,17 @@ async def judge(body: JudgeRequest) -> dict:
 
 
 @router.get("/progress", response_model=CorpusStats)
-async def progress() -> CorpusStats:
-    return await _require_store().stats()
+async def progress(ann: Ann) -> CorpusStats:
+    return await ann.store.stats()
 
 
 @router.get("/quality")
-async def quality() -> list[dict]:
+async def quality(ann: Ann) -> list[dict]:
     """Per-annotator reliability. The numbers and the flags, never an exclusion.
 
     Whose work gets dropped is a decision to make deliberately and write down —
     `scripts/annotation_report.py` is where that argument belongs.
     """
-    store = _require_store()
     return [
         {
             **q.model_dump(),
@@ -172,7 +191,7 @@ async def quality() -> list[dict]:
             "flags": q.flags,
             "is_trustworthy": q.is_trustworthy,
         }
-        for q in await store.annotator_quality()
+        for q in await ann.store.annotator_quality()
     ]
 
 

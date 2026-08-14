@@ -624,11 +624,20 @@ Verified on this machine, and they shaped the architecture:
       had never crossed the wire: platform safe areas carry left and right edges, and
       the wizard had been printing only top and bottom — Reels chrome covers 14% of the
       right edge, which is where a CTA ends up under the share rail.
-- [ ] No authentication, and the job board does not paginate. Correct for a
-      single-developer dev loop and nothing else; Supabase Auth is in the plan and
-      unbuilt.
-- [ ] **The annotation router still keeps its store in a module global.** `create_app`
-      binds it, so one server and a sequential test run are both fine, but two apps in
-      one process share it — unlike everything else in `Services`. Its own tests call
-      the route functions directly rather than over HTTP, which is what the global is
-      holding up.
+- [x] **Concurrent jobs no longer lose to `database is locked`** (week 17). Sixteen
+      jobs started at once: ten died, on screen as a job *failing at intake*, in fact
+      on persistence. Three separate causes, all now fixed in `adproviders.db` —
+      SQLite ran without WAL or a `busy_timeout`; `JobStore.save` read the row before
+      writing it, and a WAL read-then-upgrade is refused *immediately*, without ever
+      consulting `busy_timeout`; and `busy_timeout` blocks a worker thread while the
+      lock holder is an async connection waiting on the event loop, so it can only
+      ever time out. Fixed by pragmas, a single-statement upsert, and a retry that
+      `await`s between attempts. Re-run of the same sixteen: 16/16 completed.
+- [x] **The job board paginates and says what it left out** (week 17). It returned a
+      bare array capped at 25, so with 40 jobs run the oldest fifteen were gone with
+      nothing on screen saying so. `JobPage` carries `total`; the board reads
+      "1–25 of 40".
+- [x] **Every dependency is per-application** (week 17). The annotation router was the
+      last module global; it takes its store from `app.state` now, like the rest.
+- [ ] No authentication. Correct for a single-developer dev loop and nothing else;
+      Supabase Auth is in the plan and unbuilt.

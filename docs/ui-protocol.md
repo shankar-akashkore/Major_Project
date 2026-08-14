@@ -324,7 +324,48 @@ Four of those tests are about claims rather than status codes:
   An empty ledger and a missing job are both zero dollars and mean opposite things:
   the first says the run was free, the second says the question was about nothing.
 - **Two apps do not share state.** That is what the factory bought, and it is the
-  test that stops the module-level singletons coming back.
+  test that stops the module-level singletons coming back. The annotation router was
+  the last exception and is no longer one: its store comes off `app.state` via
+  `annotate.attach`, so nothing in the service outlives the app that owns it.
+
+---
+
+## 8. The board pages, and the failure that found itself
+
+Two changes here came out of running the product rather than reading it.
+
+**The board hid work.** `/api/jobs` returned a bare array capped at 25. With 40 jobs
+run, the fifteen oldest were simply absent, and the heading said "25 most recent" —
+counted off the array's own length, so it described what was drawn and never what was
+left out. `JobPage` carries `total`, the heading reads `1–25 of 40`, and `has_more` is
+a property rather than a field for the same reason as `BudgetStatus.remaining_usd`: a
+stored copy is a copy that can disagree with the three numbers it sums up.
+
+**Ten of sixteen concurrent jobs died on `database is locked`.** On screen this looked
+like a pipeline bug — jobs marked `failed` at the *intake* stage. It was persistence,
+and it had three independent causes stacked on each other:
+
+1. SQLite was opened with neither WAL nor a `busy_timeout`, so a write locked the
+   whole file and a blocked writer raised without waiting a millisecond.
+2. `JobStore.save` read the row to choose insert-versus-update, then wrote it, in one
+   transaction. In WAL a read-then-upgrade gets `SQLITE_BUSY_SNAPSHOT`, which SQLite
+   returns **immediately and without consulting `busy_timeout`** — so fixing (1) did
+   not touch the actual failure.
+3. `busy_timeout` blocks a *worker thread*. The connection holding the lock is an
+   async one waiting on the event loop to run its `COMMIT`, and the mock pipeline
+   draws images and shells out to ffmpeg synchronously — so with several jobs running,
+   the loop is busy for seconds and a waiter that never yields to it is waiting for
+   something only it can deliver. Five seconds of that is five seconds of guaranteed
+   failure.
+
+The fixes match the causes: pragmas, a single-statement upsert, and `adproviders.db.write`,
+which retries around `await asyncio.sleep` so the loop can run the holder's commit.
+Re-run of the same sixteen jobs: **16/16 completed**.
+
+One thing that did *not* survive review: `list_recent` was first changed to return
+`(rows, total)`. Three scripts call it and all three broke silently, unpacking a
+two-tuple as a list — and the type checker does not run on `scripts/`. It is two
+methods now, `list_recent` and `page`, each with one honest signature.
 
 ---
 
@@ -337,7 +378,10 @@ Four of those tests are about claims rather than status codes:
   client connecting after a job finishes still receives the whole progress log is
   asserted; that events arrive incrementally rather than in one batch was measured in
   a browser (34 events at 34 distinct arrival times) and is not in the suite.
-- **The job board does not paginate.** It reads the 25 most recent and stops.
+- **Paging is by offset, not by cursor.** A job inserted while someone is on page 2
+  shifts every row down by one, so the boundary row can be seen twice. Correct for a
+  board a person reads once; a keyset cursor on `(created_at, job_id)` is the fix if
+  it ever matters.
 - **No authentication.** Every job is visible to whoever opens the page, which is
   correct for a single-developer dev loop and nothing else. Supabase Auth is in the
   plan and not built.

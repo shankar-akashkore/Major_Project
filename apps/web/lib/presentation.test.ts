@@ -404,3 +404,26 @@ test("an edge at zero is left out rather than printed as 0%", () => {
 test("a platform with no chrome says none, not an empty string", () => {
   assert.equal(P.safeAreaSummary({ top: 0, bottom: 0, left: 0, right: 0 }), "none");
 });
+
+// --- Paging --------------------------------------------------------------
+
+test("a page that is the whole store counts jobs rather than a range", () => {
+  const page = { jobs: [1, 2, 3], total: 3, offset: 0 };
+  assert.equal(P.pageSummary(page), "3 jobs");
+});
+
+test("a page that leaves rows out says how many exist", () => {
+  // The failure this replaces: the board printed "25 most recent" off the array's
+  // own length, so the fifteen jobs it dropped were invisible.
+  const page = { jobs: new Array(25).fill(0), total: 40, offset: 0 };
+  assert.equal(P.pageSummary(page), "1–25 of 40");
+});
+
+test("a later page numbers from its offset, one-indexed and inclusive", () => {
+  const page = { jobs: new Array(15).fill(0), total: 40, offset: 25 };
+  assert.equal(P.pageSummary(page), "26–40 of 40");
+});
+
+test("one job is a job, not 1 jobs", () => {
+  assert.equal(P.pageSummary({ jobs: [1], total: 1, offset: 0 }), "1 job");
+});

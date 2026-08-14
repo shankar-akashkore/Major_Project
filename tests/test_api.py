@@ -40,8 +40,8 @@ from adschema import (
     CorpusStats,
     DeliveryResponse,
     GoldenSummary,
+    JobPage,
     JobRecord,
-    JobSummary,
     Launched,
     LedgerResponse,
     Platform,
@@ -199,7 +199,7 @@ async def test_consent_is_refused_before_a_job_exists(client, uploads, release, 
     )
     assert response.status_code == 422
     assert "model release" in response.json()["detail"]
-    assert (await client.get("/api/jobs")).json() == []
+    assert (await client.get("/api/jobs")).json()["jobs"] == []
 
 
 # --- Upload validation -----------------------------------------------------
@@ -279,7 +279,9 @@ async def test_a_posted_upload_runs_to_delivery_and_every_route_agrees(client, s
     assert record.result.intake is not None
 
     # The board row: a summary, not the record.
-    rows = [JobSummary.model_validate(r) for r in (await client.get("/api/jobs")).json()]
+    page = JobPage.model_validate((await client.get("/api/jobs")).json())
+    rows = page.jobs
+    assert (page.total, page.offset, page.limit) == (1, 0, 25)
     assert [r.job_id for r in rows] == [job_id]
     assert rows[0].product_name == "Aurora Serum"
     assert rows[0].winner in {0, 1, 2}
@@ -450,14 +452,121 @@ async def test_a_frozen_bundle_is_listed_with_what_is_wrong_with_it(client, serv
     assert "cannot be replayed" in response.json()["detail"]
 
 
+# --- Paging ------------------------------------------------------------------
+
+
+async def test_the_board_pages_and_says_what_it_left_out(client, services, make_request):
+    """A list that silently stops is worse than a short one.
+
+    The board returned a bare array capped at 25, so with more jobs than that the
+    oldest were simply gone with nothing on screen saying so. `total` is the whole
+    point of the envelope — the rows are the same rows.
+    """
+    for n in range(7):
+        await services.store.save(JobRecord(request=make_request(job_id=f"job{n:012d}")))
+
+    first = JobPage.model_validate((await client.get("/api/jobs?limit=3")).json())
+    assert len(first.jobs) == 3
+    assert first.total == 7
+    assert first.has_more
+
+    last = JobPage.model_validate((await client.get("/api/jobs?limit=3&offset=6")).json())
+    assert len(last.jobs) == 1
+    assert last.total == 7
+    assert not last.has_more
+
+    # No row appears twice and none is skipped, which is what the `job_id` tiebreak
+    # in `JobStore.page` buys: these fixtures share a `created_at` to the microsecond.
+    seen = []
+    for offset in (0, 3, 6):
+        got = await client.get(f"/api/jobs?limit=3&offset={offset}")
+        seen.extend(row.job_id for row in JobPage.model_validate(got.json()).jobs)
+    assert sorted(seen) == [f"job{n:012d}" for n in range(7)]
+
+
+async def test_has_more_is_derived_and_not_on_the_wire(client):
+    """A stored copy is a copy that can disagree with the three fields it sums up."""
+    body = (await client.get("/api/jobs")).json()
+    assert set(body) == set(JobPage.model_fields)
+    assert "has_more" not in body
+
+
+@pytest.mark.parametrize("query", ["limit=0", "limit=101", "offset=-1"])
+async def test_the_page_size_is_capped(client, query):
+    """Every row carries a rendered summary, so an uncapped limit is the whole store."""
+    assert (await client.get(f"/api/jobs?{query}")).status_code == 422
+
+
+# --- Concurrency -------------------------------------------------------------
+
+
+async def test_sqlite_is_opened_in_wal_mode_with_a_busy_timeout(services):
+    """Sixteen jobs at once, and ten of them died on `database is locked`.
+
+    Not a pipeline failure — a persistence one. The API writes the whole job
+    document after every progress event, so a few concurrent jobs are a stream of
+    short write transactions, and SQLite's defaults answer that with a
+    whole-file lock and a `busy_timeout` of *zero*: a contended write raises
+    without waiting even a millisecond. On screen it looked like a job failing at
+    intake.
+
+    Asserted on the connection rather than on a stress test, which would be slow
+    and would still pass on a fast enough machine.
+    """
+    async with services.store.engine.connect() as conn:
+        journal = (await conn.exec_driver_sql("PRAGMA journal_mode")).scalar_one()
+        timeout = (await conn.exec_driver_sql("PRAGMA busy_timeout")).scalar_one()
+    assert str(journal).lower() == "wal"
+    assert int(timeout) == P.BUSY_TIMEOUT_MS
+
+
+async def test_concurrent_jobs_all_reach_a_terminal_state(client, services):
+    """The regression itself: several jobs at once, none lost to a locked file.
+
+    Eight rather than sixteen because the point is contention, not throughput, and
+    every one of these runs the real pipeline.
+    """
+    for seed in range(8):
+        assert (await client.post(f"/api/jobs/demo?seed={seed}")).status_code == 200
+    await services.wait_for_jobs()
+
+    page = JobPage.model_validate((await client.get("/api/jobs?limit=100")).json())
+    assert page.total == 8
+    assert [row.state.value for row in page.jobs] == ["completed"] * 8
+
+    # And the reason a lock failure would have been so confusing: it surfaced as the
+    # job's own `error`, written by the thing that was trying to write the job.
+    for row in page.jobs:
+        record = await services.store.get(row.job_id)
+        assert record is not None and record.error is None
+
+
 # --- Wiring ----------------------------------------------------------------
 
 
-async def test_the_annotation_router_is_bound_by_the_factory(client):
-    """The annotation store is a module global, so the factory has to bind it."""
+async def test_the_annotation_router_is_attached_by_the_factory(client):
+    """The annotation store comes off `app.state`, so the factory has to attach it."""
     body = (await client.get("/api/annotate/progress")).json()
     assert set(body) == set(CorpusStats.model_fields)
     assert body["n_judgements"] == 0
+
+
+async def test_each_app_owns_its_own_annotation_state(tmp_path):
+    """The annotation store used to be a module global the last app overwrote.
+
+    Two apps in one process shared an annotation database whatever their own
+    settings said, and seeding the serving RNG in one test changed the trial order
+    for every test after it. Asserting on identity rather than on behaviour because
+    the failure mode is aliasing, and two empty databases look identical.
+    """
+    left, right = _services(tmp_path / "left"), _services(tmp_path / "right")
+    app_left, app_right = create_app(left), create_app(right)
+
+    assert app_left.state.annotating is not app_right.state.annotating
+    assert app_left.state.annotating.store is left.annotations
+    # Creating the second app must not have reached back into the first.
+    assert app_left.state.annotating.store is not right.annotations
+    assert app_left.state.annotating.rng is not app_right.state.annotating.rng
 
 
 async def test_two_apps_do_not_share_state(tmp_path, make_request):
@@ -478,11 +587,11 @@ async def test_two_apps_do_not_share_state(tmp_path, make_request):
             async with httpx.AsyncClient(
                 transport=httpx.ASGITransport(app=app_left), base_url="http://left"
             ) as client_left:
-                rows = (await client_left.get("/api/jobs")).json()
+                rows = (await client_left.get("/api/jobs")).json()["jobs"]
             async with httpx.AsyncClient(
                 transport=httpx.ASGITransport(app=app_right), base_url="http://right"
             ) as client_right:
-                empty = (await client_right.get("/api/jobs")).json()
+                empty = (await client_right.get("/api/jobs")).json()["jobs"]
 
     assert [r["job_id"] for r in rows] == ["onlyinleft00001"]
     assert empty == []

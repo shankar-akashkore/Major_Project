@@ -32,7 +32,9 @@ from sqlalchemy import (
     func,
     select,
 )
-from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncEngine
+
+from .db import open_database, upsert, write
 
 METADATA = MetaData()
 
@@ -152,7 +154,7 @@ class SqlLedger:
 
     @classmethod
     def from_url(cls, url: str) -> SqlLedger:
-        return cls(create_async_engine(url, future=True))
+        return cls(open_database(url))
 
     async def create_all(self) -> None:
         async with self.engine.begin() as conn:
@@ -188,8 +190,7 @@ class SqlLedger:
             at=entry.at,
             note=entry.note,
         )
-        async with self.engine.begin() as conn:
-            await conn.execute(stmt)
+        await write(self.engine, stmt)
         return entry.entry_id
 
     async def settle(self, entry_id: str, actual_usd: float) -> None:
@@ -198,8 +199,7 @@ class SqlLedger:
             .where(spend_entries.c.entry_id == entry_id)
             .values(cost_usd=actual_usd, state=STATE_SETTLED)
         )
-        async with self.engine.begin() as conn:
-            await conn.execute(stmt)
+        await write(self.engine, stmt)
 
     async def void(self, entry_id: str) -> None:
         stmt = (
@@ -207,8 +207,7 @@ class SqlLedger:
             .where(spend_entries.c.entry_id == entry_id)
             .values(cost_usd=0.0, state=STATE_VOIDED)
         )
-        async with self.engine.begin() as conn:
-            await conn.execute(stmt)
+        await write(self.engine, stmt)
 
     async def lookup_cache(self, fingerprint: str) -> AssetRef | None:
         stmt = select(generation_cache.c.asset_json).where(
@@ -219,22 +218,29 @@ class SqlLedger:
         return AssetRef.model_validate(json.loads(row)) if row else None
 
     async def store_cache(self, fingerprint: str, operation: str, asset: AssetRef) -> None:
-        payload = asset.model_dump_json()
-        async with self.engine.begin() as conn:
-            existing = await conn.execute(
-                select(generation_cache.c.fingerprint).where(
-                    generation_cache.c.fingerprint == fingerprint
-                )
-            )
-            if existing.scalar_one_or_none() is None:
-                await conn.execute(
-                    generation_cache.insert().values(
-                        fingerprint=fingerprint,
-                        operation=operation,
-                        asset_json=payload,
-                        at=datetime.now(UTC),
-                    )
-                )
+        """Record a generation against its fingerprint, first writer wins.
+
+        An upsert that overwrites nothing: the same fingerprint means the same
+        request, so a second write has nothing new to say and the original `at` is
+        the more useful timestamp. Written as one statement for the reason in
+        :mod:`adproviders.db` — the read-then-write it replaces is what SQLite
+        refuses under concurrency, and this runs once per generation.
+        """
+        await write(
+            self.engine,
+            upsert(
+                self.engine.dialect,
+                generation_cache,
+                {
+                    "fingerprint": fingerprint,
+                    "operation": operation,
+                    "asset_json": asset.model_dump_json(),
+                    "at": datetime.now(UTC),
+                },
+                key="fingerprint",
+                update=[],
+            ),
+        )
 
     async def entries(self, job_id: str | None = None) -> list[SpendEntry]:
         stmt = select(spend_entries)

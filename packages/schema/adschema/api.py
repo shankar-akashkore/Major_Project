@@ -158,6 +158,30 @@ class JobSummary(BaseModel):
     )
 
 
+class JobPage(BaseModel):
+    """One page of the job board, and the count it is a page *of*.
+
+    The board used to return a bare array capped at 25.  A list that silently stops
+    is worse than a short one: with 40 jobs run, the fifteen oldest were gone from
+    the UI with nothing on screen saying so, and the demo job from an hour ago could
+    vanish behind a morning's testing.  ``total`` is what makes the omission
+    visible, which is the only reason the envelope exists.
+
+    ``has_more`` is a property rather than a field, matching
+    :class:`BudgetStatus.remaining_usd`: it is derivable from the other three, and a
+    stored copy is a copy that can disagree with them.
+    """
+
+    jobs: list[JobSummary]
+    total: int = Field(ge=0, description="Every job in the store, not just this page.")
+    limit: int = Field(ge=1)
+    offset: int = Field(ge=0)
+
+    @property
+    def has_more(self) -> bool:
+        return self.offset + len(self.jobs) < self.total
+
+
 class Launched(BaseModel):
     """Acknowledgement of a job that has been queued but has not run yet.
 

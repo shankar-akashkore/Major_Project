@@ -20,8 +20,8 @@ import type {
   BudgetStatus,
   DeliveryResponse,
   GoldenSummary,
+  JobPage,
   JobRecord,
-  JobSummary,
   Launched,
   LedgerResponse,
 } from "./contract.ts";
@@ -94,7 +94,8 @@ async function errorMessage(response: Response): Promise<string> {
 
 export const getConfig = () => request<AppConfig>("/api/config");
 export const getBudget = () => request<BudgetStatus>("/api/budget");
-export const listJobs = (limit = 25) => request<JobSummary[]>(`/api/jobs?limit=${limit}`);
+export const listJobs = (limit = 25, offset = 0) =>
+  request<JobPage>(`/api/jobs?limit=${limit}&offset=${offset}`);
 export const getJob = (jobId: string) => request<JobRecord>(`/api/jobs/${jobId}`);
 export const getLedger = (jobId: string) => request<LedgerResponse>(`/api/jobs/${jobId}/ledger`);
 export const listGolden = () => request<GoldenSummary[]>("/api/golden");

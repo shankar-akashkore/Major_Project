@@ -14,9 +14,10 @@ import asyncio
 from collections import defaultdict
 from datetime import UTC, datetime
 
+from adproviders import open_database, upsert, write
 from adschema import JobRecord, StageEvent
-from sqlalchemy import Column, DateTime, MetaData, String, Table, Text, select
-from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
+from sqlalchemy import Column, DateTime, MetaData, String, Table, Text, func, select
+from sqlalchemy.ext.asyncio import AsyncEngine
 
 METADATA = MetaData()
 
@@ -37,35 +38,40 @@ class JobStore:
 
     @classmethod
     def from_url(cls, url: str) -> JobStore:
-        return cls(create_async_engine(url, future=True))
+        return cls(open_database(url))
 
     async def create_all(self) -> None:
         async with self.engine.begin() as conn:
             await conn.run_sync(METADATA.create_all)
 
     async def save(self, record: JobRecord) -> None:
-        now = datetime.now(UTC)
-        document = record.model_dump_json()
-        async with self.engine.begin() as conn:
-            existing = await conn.execute(
-                select(jobs.c.job_id).where(jobs.c.job_id == record.job_id)
-            )
-            if existing.scalar_one_or_none() is None:
-                await conn.execute(
-                    jobs.insert().values(
-                        job_id=record.job_id,
-                        state=record.state.value,
-                        document=document,
-                        created_at=record.request.created_at,
-                        updated_at=now,
-                    )
-                )
-            else:
-                await conn.execute(
-                    jobs.update()
-                    .where(jobs.c.job_id == record.job_id)
-                    .values(state=record.state.value, document=document, updated_at=now)
-                )
+        """Insert or update in one statement, which is not a micro-optimisation.
+
+        This used to read the row to choose between an insert and an update, then
+        write it, in one transaction. Under concurrency that read-then-upgrade is
+        what SQLite refuses outright — see :mod:`adproviders.db` — and it lost ten
+        of sixteen simultaneous jobs to ``database is locked``, reported on screen
+        as a job failing at intake.
+
+        ``created_at`` is written on insert and not in the update set, so a save
+        does not keep moving the row to the top of the board.
+        """
+        await write(
+            self.engine,
+            upsert(
+                self.engine.dialect,
+                jobs,
+                {
+                    "job_id": record.job_id,
+                    "state": record.state.value,
+                    "document": record.model_dump_json(),
+                    "created_at": record.request.created_at,
+                    "updated_at": datetime.now(UTC),
+                },
+                key="job_id",
+                update=["state", "document", "updated_at"],
+            ),
+        )
 
     async def get(self, job_id: str) -> JobRecord | None:
         async with self.engine.connect() as conn:
@@ -74,14 +80,47 @@ class JobStore:
             ).scalar_one_or_none()
         return JobRecord.model_validate_json(row) if row else None
 
+    #: Newest first, with ``job_id`` breaking ties. Without the tiebreak two jobs
+    #: created in the same clock tick have no order defined between them, and a row
+    #: can appear on two consecutive pages or on neither.
+    _NEWEST_FIRST = (jobs.c.created_at.desc(), jobs.c.job_id.desc())
+
     async def list_recent(self, limit: int = 25) -> list[JobRecord]:
+        """The newest ``limit`` jobs. What a script wants: rows, no bookkeeping."""
         async with self.engine.connect() as conn:
             rows = (
                 await conn.execute(
-                    select(jobs.c.document).order_by(jobs.c.created_at.desc()).limit(limit)
+                    select(jobs.c.document).order_by(*self._NEWEST_FIRST).limit(limit)
                 )
             ).scalars()
         return [JobRecord.model_validate_json(r) for r in rows]
+
+    async def page(self, limit: int = 25, offset: int = 0) -> tuple[list[JobRecord], int]:
+        """One page for the board, and the total it was taken from.
+
+        A separate method rather than an extra return value on
+        :meth:`list_recent`, which is what this was first written as — three scripts
+        call that and every one of them broke silently, unpacking a two-tuple as if
+        it were the list. A signature that changes shape under callers who never
+        asked for the new part is a trap, and the type checker does not run on
+        ``scripts/``.
+
+        Both queries share one connection so the count cannot be taken after a job
+        the page did not see was inserted; a total smaller than the rows returned
+        would read as a bug in the board.
+        """
+        async with self.engine.connect() as conn:
+            rows = (
+                await conn.execute(
+                    select(jobs.c.document)
+                    .order_by(*self._NEWEST_FIRST)
+                    .limit(limit)
+                    .offset(offset)
+                )
+            ).scalars()
+            records = [JobRecord.model_validate_json(r) for r in rows]
+            total = (await conn.execute(select(func.count()).select_from(jobs))).scalar_one()
+        return records, int(total)
 
 
 class EventBus:

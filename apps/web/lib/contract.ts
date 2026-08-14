@@ -534,6 +534,18 @@ export interface IntakeReport {
   advisories: string[];
 }
 
+/** One page of the job board, and the count it is a page *of*. */
+// derived (not on the wire): has_more
+export interface JobPage {
+  jobs: JobSummary[];
+  /** Every job in the store, not just this page. (at least 0) */
+  total: number;
+  /** At least 1. */
+  limit: number;
+  /** At least 0. */
+  offset: number;
+}
+
 /** The persisted job: request, state, progress history and results. */
 // derived (not on the wire): job_id, current_stage, duration_seconds
 export interface JobRecord {
