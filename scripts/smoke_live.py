@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import sys
 from pathlib import Path
 
@@ -157,6 +158,15 @@ async def _run(kind: str) -> int:
         print(f"  seeded     : {result.seed_honoured}")
         print(f"  latency    : {result.latency_ms} ms")
         print("  CHECK: play the file and confirm it really is that many seconds.")
+
+    # Keep the raw response. It cost real money and it is the only record of what
+    # the API actually returned — which fields exist, which the documentation
+    # promised and did not deliver. The first image call found two such gaps and
+    # they were nearly lost to a terminal scrollback.
+    raw_path = Path(settings.storage_root) / SMOKE_DIR / f"raw_{kind}.json"
+    raw_path.parent.mkdir(parents=True, exist_ok=True)
+    raw_path.write_text(json.dumps(result.raw, indent=2, default=str))
+    print(f"  raw saved  : {raw_path}")
 
     print(f"after : ${await ledger.total_spent():.4f} of ${settings.budget_total_usd:.2f} spent")
     await ledger.engine.dispose()

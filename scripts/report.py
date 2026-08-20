@@ -256,6 +256,21 @@ def _predictor_section(report: RP.Report, out: Path, *, trained: dict | None) ->
 # --- Section 3: what the corpus needs ----------------------------------------
 
 
+async def _total_spent(url: str) -> float:
+    """What the ledger says has been spent, read rather than asserted.
+
+    This used to be the literal string ``"$0.0000"`` with the note "no API call has
+    been made", which was true for as long as it was true and became a false claim
+    in the project's own write-up the moment the first contract smoke test ran. A
+    figure that cannot change is not a measurement.
+    """
+    ledger = P.SqlLedger.from_url(url)
+    try:
+        return await ledger.total_spent()
+    finally:
+        await ledger.engine.dispose()
+
+
 async def _corpus_sets(url: str) -> int:
     """How many generation sets the annotation corpus actually holds.
 
@@ -329,7 +344,7 @@ def _corpus_section(report: RP.Report, out: Path, *, n_sets_now: int) -> None:
 # --- Section 4: the product side ---------------------------------------------
 
 
-def _delivery_section(report: RP.Report, harvest: ST.Harvest) -> None:
+def _delivery_section(report: RP.Report, harvest: ST.Harvest, spent_usd: float) -> None:
     section = report.section(
         "The working product",
         "The pipeline runs end to end: intake and product cutout, a sampled design space "
@@ -366,14 +381,22 @@ def _delivery_section(report: RP.Report, harvest: ST.Harvest) -> None:
     )
     table.add(
         item="Total spend",
-        value="$0.0000",
-        note="no API call has been made; mock mode is the default",
+        value=f"${spent_usd:.4f}",
+        note=(
+            "contract smoke tests only; mock mode remains the default"
+            if spent_usd > 0
+            else "no API call has been made; mock mode is the default"
+        ),
     )
     table.pending_row(
         "Premium-tier jobs",
-        "the two fal contract smoke tests ($0.39) have not been run and no key has been "
-        "supplied, so no paid generation exists and the golden set is frozen from "
-        "synthetic references",
+        "the two fal contract smoke tests have been run and both adapters are confirmed "
+        "against the live API (see docs/provider-spike.md), but no full job has been "
+        "generated, so the golden set is still frozen from synthetic references"
+        if spent_usd > 0
+        else "the two fal contract smoke tests ($0.39) have not been run and no key has "
+        "been supplied, so no paid generation exists and the golden set is frozen "
+        "from synthetic references",
     )
     table.pending_row(
         "Research-tier clips",
@@ -402,10 +425,11 @@ async def _run(args: argparse.Namespace) -> int:
         command=f"{COMMAND} (at {revision})",
     )
 
+    settings = P.get_settings()
     harvest = await _stage_section(report, out)
     _predictor_section(report, out, trained=None)
-    _corpus_section(report, out, n_sets_now=await _corpus_sets(P.get_settings().database_url))
-    _delivery_section(report, harvest)
+    _corpus_section(report, out, n_sets_now=await _corpus_sets(settings.database_url))
+    _delivery_section(report, harvest, await _total_spent(settings.database_url))
 
     if args.check:
         print(f"tables: {len(report.tables)}   quotable as a result: {report.is_a_result}")

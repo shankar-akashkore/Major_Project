@@ -49,6 +49,13 @@ fixtures/research/*
 # `scripts/freeze_golden.py --slug <name> --pack`.
 fixtures/golden/*/assets/*
 fixtures/golden/*.zip
+# Live smoke test output: one paid Seedream image and one paid Kling clip, ~7.5 MB
+# between them. The raw JSON responses ARE committed — a few hundred bytes each,
+# and they are the only record of what the API actually returned. That record is
+# worth keeping: the first image call did not save one, and the finding that
+# Seedream reports no dimensions at all was nearly lost to a terminal scrollback.
+fixtures/smoke/*
+!fixtures/smoke/raw_*.json
 
 # Trained rankers are small (a linear head over ~40 features is a few kB) but they
 # are build output, not source, and a stale committed model would be served by the

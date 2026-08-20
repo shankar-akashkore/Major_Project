@@ -27,11 +27,14 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import io
 import time
 from typing import Any
 
 import httpx
+from adml import video as V
 from adschema import AspectRatio, AssetRef, Tier
+from PIL import Image, UnidentifiedImageError
 
 from .base import (
     ImageGenRequest,
@@ -196,6 +199,13 @@ _MIME_BY_SUFFIX = {
     "webp": "image/webp",
 }
 
+#: PIL's format name for the encodings a generation endpoint might return.
+_MIME_BY_FORMAT = {
+    "PNG": "image/png",
+    "JPEG": "image/jpeg",
+    "WEBP": "image/webp",
+}
+
 
 def as_data_uri(storage: Storage, asset: AssetRef) -> str:
     """Encode a stored asset as a ``data:`` URI.
@@ -211,12 +221,48 @@ def as_data_uri(storage: Storage, asset: AssetRef) -> str:
     return f"data:{mime};base64,{payload}"
 
 
+def _measure_image(data: bytes) -> tuple[int | None, int | None, str | None]:
+    """Read an image's real dimensions and encoding out of its own bytes.
+
+    The first live call is what made this necessary. Two things the adapter had
+    been believing turned out to be false:
+
+    * Seedream's response carries **no** ``width`` or ``height`` field at all, so
+      ``images[0].get("width")`` was silently ``None`` and the asset record said
+      nothing about the image's size.
+    * It returned **JPEG** bytes for a request whose ``output_key`` ends in
+      ``.png``, so the recorded mime type was a guess that happened to be wrong.
+
+    Both would have gone into the delivery manifest as fact. The video path
+    already reads geometry from the file with :func:`adml.video.probe` rather than
+    trusting a field; this makes the image path consistent with it.
+
+    Best-effort by design. A generation that has already been *paid for* must not
+    be thrown away because it arrived in an encoding Pillow does not know — the
+    bytes are on disk either way, and an unmeasured asset is recoverable while a
+    discarded one is not.
+    """
+    try:
+        with Image.open(io.BytesIO(data)) as im:
+            return im.width, im.height, _MIME_BY_FORMAT.get((im.format or "").upper())
+    except (UnidentifiedImageError, OSError, ValueError):
+        return None, None, None
+
+
 def _image_size(aspect: AspectRatio, long_edge: int = 1536) -> dict[str, int]:
     """Explicit pixel dimensions for the target aspect ratio.
 
     Passed as width/height rather than one of fal's named presets, because the
     presets do not include 9:16 and the platform geometry is not negotiable —
     a Reels ad that comes back 4:3 is a wasted generation.
+
+    What the first live call established: Seedream treats this as the *shape* to
+    match, not the size to produce. A request for 864x1536 came back 1920x3416 —
+    the aspect ratio honoured to within 0.07%, the resolution its own choice.
+    That is the useful half. Downstream only needs the ratio (delivery crops to
+    platform safe areas from whatever it is given), so this asks for the ratio and
+    :func:`_measure_image` records what actually arrived rather than what was asked
+    for. Do not treat the returned size as predictable.
     """
     width, height = aspect.pixel_size(long_edge)
     return {"width": width, "height": height}
@@ -263,11 +309,15 @@ class FalImageProvider(ImageProvider):
             raise ProviderError(f"{self.model} returned no image: {raw}")
 
         data = await self.client.fetch_bytes(images[0]["url"])
+        # Measured, not reported. See `_measure_image` for what the first live
+        # call found wrong with the reported values.
+        width, height, mime = _measure_image(data)
         asset = self.storage.put_bytes(
-            request.output_key, data, images[0].get("content_type", "image/png")
+            request.output_key,
+            data,
+            mime or images[0].get("content_type") or "image/png",
         )
-        asset.width = images[0].get("width")
-        asset.height = images[0].get("height")
+        asset.width, asset.height = width, height
 
         return ImageGenResult(
             asset=asset,
@@ -321,6 +371,20 @@ class FalVideoProvider(VideoProvider):
             request.output_key, data, video.get("content_type", "video/mp4")
         )
 
+        # The duration this adapter used to report was `delivered` — the enum value
+        # it *asked* for. That is a claim about someone else's API, and the project
+        # guarantees every delivered clip is 8-10 s. A guarantee checked against the
+        # request rather than the file is not checked at all, so read it off the
+        # bytes and let the pipeline's duration gate see the truth. Falls back to the
+        # requested value only when the container will not give one up.
+        measured = delivered
+        try:
+            probe = V.probe(data)
+            if probe.duration_measured and probe.duration_seconds > 0:
+                measured = probe.duration_seconds
+        except V.ClipDecodeError:
+            pass
+
         return VideoGenResult(
             asset=asset,
             model=self.model,
@@ -328,8 +392,9 @@ class FalVideoProvider(VideoProvider):
             cost_usd=self.estimate_cost(request.duration_seconds),
             latency_ms=round((time.monotonic() - started) * 1000),
             seed=request.seed,
-            # Reported as delivered, not as requested — a 9 s ask comes back 10 s.
-            duration_seconds=delivered,
+            # Measured off the file, not requested — a 9 s ask comes back 10 s, and
+            # whether it really does is a question only the bytes can answer.
+            duration_seconds=measured,
             fps=request.fps,
             was_chained=False,
             seed_honoured=self.honours_seed,

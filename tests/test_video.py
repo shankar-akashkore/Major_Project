@@ -309,6 +309,35 @@ def test_duration_is_checked_against_the_file_not_the_claim(moving_mp4):
     assert "provider reported" in lying.summary()
 
 
+def test_a_clip_one_frame_long_is_still_inside_the_window():
+    """The bug the first paid Kling clip found, pinned so it cannot come back.
+
+    Kling counts the closing frame: a ``"5"`` request came back as 121 frames at
+    24 fps — 5.041667 s, one frame over. A ``"10"`` request lands at 10.041667 s,
+    which an exclusive ``measured <= 10.0`` marks OUTSIDE the project's own stated
+    window. Every premium clip would have carried that warning.
+
+    No mock could have surfaced it: the mock video provider emits exactly 10.0 s.
+    This test states the real measured number rather than a rounded one, so it
+    fails if the tolerance is ever tightened back below one frame.
+    """
+    over = V.DurationCheck(
+        measured_seconds=10.041667,  # 241 frames at 24 fps, measured off a real clip
+        claimed_seconds=10.0,
+        min_seconds=8.0,
+        max_seconds=10.0,
+        duration_measured=True,
+    )
+    assert over.in_window
+    assert over.matches_claim  # one frame is not a discrepancy worth reporting
+
+    # The tolerance is for frame rounding, not for a provider shipping a short clip,
+    # so it is applied to the ceiling only. An undershoot of any size still fails —
+    # that is the project's 8 s floor, and it is the promise this check protects.
+    assert not V.DurationCheck(7.99, 8.0, 8.0, 10.0, True).in_window
+    assert not V.DurationCheck(10.5, 10.0, 8.0, 10.0, True).in_window
+
+
 @needs_ffmpeg
 def test_a_short_delivery_falls_outside_the_window(tmp_path):
     short = _lavfi_mp4(tmp_path, "testsrc=size=64x64:rate=24:duration=5", "short")

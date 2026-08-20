@@ -432,6 +432,30 @@ def decode(
 
 # --- Duration verification ---------------------------------------------------
 
+#: Slack allowed **above** the duration window, in seconds.
+#:
+#: Not a fudge factor — it is what the first real Kling clip cost us to learn. A
+#: ``"5"`` request came back at **5.041667 s**: 121 frames at 24 fps, exactly one
+#: frame long, because the provider counts the closing frame. A ``"10"`` request
+#: therefore lands at ~10.0417 s, and an exclusive test written as
+#: ``measured <= 10.0`` would have flagged **every premium clip the project ever
+#: generates** as OUTSIDE the project's own stated commitment.
+#:
+#: No test could have found this. The mock video provider produces exactly 10.0 s,
+#: so the bug existed only on the far side of a real payment.
+#:
+#: 0.1 s is ~2.5 frames at 24 fps: margin enough that an encoder rounding a frame
+#: differently still passes, and far below anything a viewer or a platform can
+#: distinguish.
+#:
+#: **It is applied to the ceiling only, never the floor.** The two directions are
+#: not the same risk. An overshoot is an encoder counting frames; an undershoot is
+#: the project failing the 8-10 s output it promises, which is the entire reason
+#: this check exists — so 7.9 s must fail, and does.
+#: :meth:`adproviders.pricing.VideoPrice.snap_duration` resolves the identical
+#: asymmetry the identical way, and for the same reason.
+DURATION_TOLERANCE_S = 0.1
+
 
 @dataclass(frozen=True)
 class DurationCheck:
@@ -445,7 +469,7 @@ class DurationCheck:
 
     @property
     def in_window(self) -> bool:
-        return self.min_seconds <= self.measured_seconds <= self.max_seconds
+        return self.min_seconds <= self.measured_seconds <= self.max_seconds + DURATION_TOLERANCE_S
 
     @property
     def drift_seconds(self) -> float:

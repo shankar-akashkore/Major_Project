@@ -118,8 +118,12 @@ class _Recorder:
                 {
                     "url": "https://cdn.fal.test/assets/image.png",
                     "content_type": "image/png",
-                    "width": 864,
-                    "height": 1536,
+                    # No width/height, because the real endpoint returns none. This
+                    # fixture used to carry `"width": 864, "height": 1536` — values
+                    # invented to match the request — and that invention is exactly
+                    # why a full green suite coexisted with an adapter that recorded
+                    # `None` for every image's dimensions in live mode. A stub that
+                    # is kinder than the API tests nothing.
                 }
             ],
             "seed": 4242,
@@ -167,6 +171,57 @@ async def test_image_request_matches_the_documented_seedream_schema(storage, ref
     assert result.cost_usd == pytest.approx(0.04)
     assert result.seed == 4242
     assert result.model == "seedream-4.5-edit"
+
+
+async def test_image_dimensions_are_measured_because_seedream_reports_none(storage, references):
+    """The live smoke test, turned into a test that cannot silently rot.
+
+    The first real call to Seedream returned an ``images[0]`` object with no
+    ``width`` and no ``height``, so the adapter's ``images[0].get("width")``
+    recorded ``None`` for both — into an asset record the delivery manifest treats
+    as fact. Measuring the bytes is the only thing that works regardless of which
+    provider is swapped in behind the adapter.
+    """
+    human, product = references
+    recorder = _Recorder()
+    provider = P.FalImageProvider(storage, client=_client(recorder))
+
+    result = await provider.generate(
+        P.ImageGenRequest(
+            brief=_brief(),
+            references=[human, product],
+            aspect_ratio=AspectRatio.VERTICAL_9_16,
+            seed=7,
+            output_key="generations/j/img_0.png",
+        )
+    )
+
+    # The canned response carries no dimensions at all, exactly like the real one.
+    assert "width" not in recorder._result_body(SEEDREAM_EDIT_ENDPOINT)["images"][0]
+    # PNG_BYTES is a 1x1 pixel, and that is what the record must say.
+    assert (result.asset.width, result.asset.height) == (1, 1)
+
+
+def test_the_recorded_mime_comes_from_the_bytes_not_the_output_key():
+    """Seedream returned JPEG bytes for a request whose output key ended in .png.
+
+    The adapter had been recording ``content_type`` or defaulting to ``image/png``
+    — a guess about the encoding, keyed off a filename the *caller* chose. The
+    encoding is a property of the bytes, so it is read from the bytes.
+    """
+    import io
+
+    from adproviders.fal import _measure_image
+    from PIL import Image
+
+    buf = io.BytesIO()
+    Image.new("RGB", (1920, 3416), (10, 20, 30)).save(buf, format="JPEG", quality=20)
+
+    assert _measure_image(buf.getvalue()) == (1920, 3416, "image/jpeg")
+    assert _measure_image(PNG_BYTES) == (1, 1, "image/png")
+    # A generation that has already been paid for is never discarded for being
+    # unreadable — it is stored unmeasured and stays recoverable.
+    assert _measure_image(b"not an image at all") == (None, None, None)
 
 
 async def test_too_many_references_fails_before_the_call(storage, references):

@@ -116,17 +116,74 @@ $2.22 job cost, and it would catch a runaway before it costs a whole extra job.
 
 ---
 
-## Before spending anything in bulk
+---
 
-1. `scripts/smoke_live.py --image --confirm-spend` — $0.04. Confirms the parameter
-   names, that the seed is echoed back, and the returned dimensions.
-2. `scripts/smoke_live.py --video --confirm-spend` — $0.35 at the 5 s option.
-   Confirms the duration enum, the response shape, and **that the file really is
-   the length the API claims** — play it and check.
-3. Recalibrate the quality gate against real generations. Its thresholds were set
+# The smoke test ran — 20 August 2026
+
+**Both adapters called for real. $0.39 spent, exactly as forecast.** Everything
+above this line was vendor documentation; everything below is measured.
+
+**Confirmed as documented:** authentication (`Authorization: Key <id>:<secret>`),
+the Seedream parameter names, **the seed is echoed back** (requested 7, returned 7
+— the image-stage ablations really are reproducible), Kling's `duration` string
+enum, both prices, and `seed_honoured=False` on video.
+
+## Four things the documentation did not say
+
+### 1. Seedream returns no dimensions at all
+
+The `images[0]` object has no `width` and no `height`. `images[0].get("width")`
+was therefore recording `None` on every generation, into an asset record the
+delivery manifest treats as fact.
+
+### 2. It returns JPEG for a `.png` output key
+
+The recorded mime type was a guess keyed off a filename the *caller* chose. The
+file on disk was JPEG.
+
+Both are fixed the same way, by `adproviders.fal._measure_image`: read dimensions
+and encoding from the bytes. The video path already did this with
+`adml.video.probe`; the image path now matches it.
+
+### 3. Requested pixel dimensions are treated as a shape, not a size
+
+A request for 864x1536 came back **1920x3416** — the 9:16 ratio honoured to within
+0.07%, the resolution Seedream's own choice. The ratio is the half that matters,
+since delivery crops to platform safe areas from whatever it is handed. Do not
+treat the returned size as predictable.
+
+### 4. Kling delivers one frame long, and that broke the duration gate
+
+A `"5"` request returned **5.041667 s** — 121 frames at 24 fps, because the
+provider counts the closing frame. A `"10"` request therefore lands at ~10.0417 s.
+
+`DurationCheck.in_window` tested `measured <= 10.0`, so **every premium clip this
+project generates would have been flagged `OUTSIDE the 8-10s window`** — a warning
+on every candidate, of the kind that teaches you to stop reading warnings.
+
+Nothing in the suite could have caught it: the mock provider emits exactly 10.0 s.
+Fixed with `DURATION_TOLERANCE_S = 0.1`, applied **to the ceiling only** — an
+overshoot is an encoder counting frames, an undershoot is the project failing the
+8 s output it promises. `VideoPrice.snap_duration` already resolves that same
+asymmetry the same way.
+
+**Also worth knowing:** the video payload sends no aspect ratio, so Kling takes it
+from the start image (the smoke test's square product photo produced a 1440x1440
+clip). In a real job the start image is the generated 9:16 frame, so this is
+correct — but it means video geometry is inherited, never requested. The clip has
+no audio track, as expected.
+
+The raw responses are saved to `fixtures/smoke/raw_*.json`. The image call
+predates that, which is why finding 1 was nearly lost to a terminal scrollback.
+
+## Still to do before spending in bulk
+
+1. Recalibrate the quality gate against real generations. Its thresholds were set
    against the mock renderer, and `THRESH_PALETTE`/`THRESH_SAFE_AREA`/`THRESH_FOCUS`
    have no standing until they have seen real output.
-4. Only then bulk-generate the 300-image annotation corpus.
+2. Reconcile the ledger against fal's own usage page. The ledger records the
+   *estimate*; only fal knows the charge.
+3. Only then bulk-generate the 300-image annotation corpus.
 
 ## Sources
 
