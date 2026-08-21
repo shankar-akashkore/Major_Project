@@ -56,16 +56,20 @@ from .enums import (
     Mood,
     MotionIntent,
     Platform,
+    ProductScale,
+    PromptStyle,
     ProviderMode,
     SafeArea,
     Stage,
     Tier,
     Vertical,
+    default_scale_for,
 )
 from .intake import CutoutReport, FaceReport, IntakeReport, ReferenceReport
 from .job import BudgetStatus, JobRecord, JobResult, SpendEntry, StageEvent
 from .request import (
     DEFAULT_CANDIDATE_COUNT,
+    DEFAULT_VIDEO_COUNT,
     MAX_DURATION_S,
     MIN_DURATION_S,
     AdJobRequest,
@@ -92,6 +96,9 @@ __all__ = [
     "Stage",
     "Tier",
     "Vertical",
+    "ProductScale",
+    "PromptStyle",
+    "default_scale_for",
     # request
     "AdJobRequest",
     "AssetRef",
@@ -99,6 +106,7 @@ __all__ = [
     "ConsentAttestation",
     "ThemeSpec",
     "DEFAULT_CANDIDATE_COUNT",
+    "DEFAULT_VIDEO_COUNT",
     "MIN_DURATION_S",
     "MAX_DURATION_S",
     # brief

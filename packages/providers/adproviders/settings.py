@@ -37,6 +37,30 @@ class Settings(BaseSettings):
     #: runaway before it has cost a whole extra job.
     budget_per_job_usd: float = Field(default=2.50, ge=0.0)
     max_retries_per_slot: int = Field(default=1, ge=0, le=3)
+    #: How many generations may be in flight at once.
+    #:
+    #: The pipeline used to run its slots one after another, and the first live job
+    #: measured what that costs: three Seedream edits at ~50 s each took 152 s of
+    #: wall clock to produce 151 s of generation. Nothing was overlapping. At five
+    #: candidates it is four minutes of a user watching a progress bar for no
+    #: reason — the provider is a queue, and waiting for one's turn to wait is not
+    #: a constraint, it is an omission.
+    #:
+    #: Five rather than unlimited, and five rather than four, because five is the
+    #: default candidate count: a limit of four would put the fifth image in a wave
+    #: of its own and charge a whole extra generation's latency for it. Bounded at
+    #: all because fan-out is limited by what a rate limiter tolerates rather than
+    #: by what asyncio will start — a 429 lands on a slot that has already cleared
+    #: the budget check. `FalClient` waits one out rather than failing the slot, so
+    #: the cost of guessing this too high is time, not a lost candidate. Lower it
+    #: if fal starts refusing submissions.
+    max_concurrent_generations: int = Field(default=5, ge=1, le=8)
+
+    #: Image-prompt template. An ablation axis, kept here rather than on the
+    #: request because the person submitting a job has no view on prompt
+    #: verbosity. Default stays `full` until the compact template has been
+    #: measured against a real generator rather than against assertions.
+    prompt_style: str = Field(default="full", description="'full' | 'compact'")
 
     # --- Persistence ---
     database_url: str = "sqlite+aiosqlite:///./adgen.db"
@@ -44,6 +68,17 @@ class Settings(BaseSettings):
     # --- Storage ---
     storage_backend: str = Field(default="local", description="'local' | 'supabase'")
     storage_root: Path = Field(default=Path("./fixtures"))
+
+    # --- Soundtrack ---
+    #: Where licensed music lives. Each track needs a JSON sidecar of the same
+    #: stem recording its title, source and licence; a file without one is
+    #: skipped rather than shipped with the provenance left blank. Empty or
+    #: absent is the normal state, and delivery then synthesises a bed scored to
+    #: the job's mood — see ``adml.audio.choose_bed``.
+    audio_library: Path | None = Field(
+        default=None,
+        description="Directory of licensed music beds. Defaults to <storage_root>/audio.",
+    )
 
     # --- Provider selection (names resolved by the registry) ---
     image_provider: str = "mock"
@@ -79,6 +114,10 @@ class Settings(BaseSettings):
     @property
     def clip_manifest_dir(self) -> Path:
         return self.clip_manifest or (self.storage_root / "research")
+
+    @property
+    def audio_root(self) -> Path:
+        return self.audio_library or (self.storage_root / "audio")
 
     @property
     def golden_root(self) -> Path:

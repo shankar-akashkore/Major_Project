@@ -133,6 +133,15 @@ export function DeliveryPanel({
             </div>
           ) : null}
 
+          {audio.generated && !audio.is_test_signal ? (
+            <p className="mt-2 text-[10px] leading-snug text-zinc-500">
+              This bed was synthesised for the ad and scored to the mood you chose, so it carries no
+              third-party rights and needs no attribution. To use real music instead, drop the track
+              plus a JSON file recording its licence into the audio library — a licensed track always
+              takes precedence.
+            </p>
+          ) : null}
+
           {audio.note ? (
             <p className="mt-2 text-[10px] leading-snug text-zinc-500">{audio.note}</p>
           ) : null}

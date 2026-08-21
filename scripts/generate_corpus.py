@@ -46,6 +46,7 @@ sys.path.insert(0, str(ROOT / "services" / "worker"))
 import adproviders as P  # noqa: E402
 from adapi.annotation_store import AnnotationStore  # noqa: E402
 from adschema import (  # noqa: E402
+    DEFAULT_CANDIDATE_COUNT,
     AspectRatio,
     ConsentAttestation,
     CorpusItem,
@@ -54,6 +55,7 @@ from adschema import (  # noqa: E402
     ItemKind,
     Mood,
     Platform,
+    ProductScale,
     ProviderMode,
     ThemeSpec,
     Vertical,
@@ -135,7 +137,9 @@ def _load_reference_pairs(directory: Path | None, storage, count: int) -> list[t
     return pairs
 
 
-def _request_for_set(index: int, references: tuple, seed: int, platform: Platform):
+def _request_for_set(
+    index: int, references: tuple, seed: int, platform: Platform, product_scale: str = ""
+):
     from adschema import AdJobRequest
 
     human, product = references
@@ -147,11 +151,19 @@ def _request_for_set(index: int, references: tuple, seed: int, platform: Platfor
         caption="",
         cta_text="Shop now",
         vertical=VERTICALS[index % len(VERTICALS)],
+        # Normally left to the vertical, which is what varies across the corpus.
+        # Overridable so a single set can be generated against one specific
+        # product's real size — which is how the scale instruction gets tested
+        # against a real photograph without paying for a whole job.
+        product_scale=product_scale or None,
         platform=platform,
         mood=MOODS[index % len(MOODS)],
         theme=ThemeSpec(palette=[]),
         duration_seconds=9.0,
-        candidate_count=3,
+        # Matched to the product's set size on purpose. The ranker is trained on
+        # these sets and served on product jobs, and NDCG@1 over a set of three
+        # is not the same quantity as over a set of five.
+        candidate_count=DEFAULT_CANDIDATE_COUNT,
         seed=seed + index * 17,
         # The corpus references are synthetic or licensed shoot material the
         # operator supplies, and the attestation is the operator's, exactly as it
@@ -227,7 +239,11 @@ async def _run(args: argparse.Namespace) -> int:
     rejected = 0
     for index in range(args.sets):
         request = _request_for_set(
-            index, references[index % len(references)], args.seed, Platform(args.platform)
+            index,
+            references[index % len(references)],
+            args.seed,
+            Platform(args.platform),
+            args.product_scale,
         )
         brief_set = await compile_briefs(request, llm)
         items: list[CorpusItem] = []
@@ -344,6 +360,13 @@ def main() -> int:
         "different aspect ratios into the same comparison, so a cross-set judgement "
         "would partly be about framing shape rather than about the creative decision — "
         "and a 4:5 frame letterboxed beside a 9:16 one is not an equal presentation.",
+    )
+    parser.add_argument(
+        "--product-scale",
+        default="",
+        choices=["", *[s.value for s in ProductScale]],
+        help="Override the per-vertical product size for every set. Use when "
+        "generating against one real product rather than a mixed corpus.",
     )
     parser.add_argument("--seed", type=int, default=1000)
     args = parser.parse_args()

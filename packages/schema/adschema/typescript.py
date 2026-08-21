@@ -322,6 +322,7 @@ def generate() -> str:
     """The committed contract, from the models as they are right now."""
     from . import (
         DEFAULT_CANDIDATE_COUNT,
+        DEFAULT_VIDEO_COUNT,
         MAX_DURATION_S,
         MIN_DURATION_S,
         AdJobRequest,
@@ -365,6 +366,7 @@ def generate() -> str:
         "MIN_DURATION_S": MIN_DURATION_S,
         "MAX_DURATION_S": MAX_DURATION_S,
         "DEFAULT_CANDIDATE_COUNT": DEFAULT_CANDIDATE_COUNT,
+        "DEFAULT_VIDEO_COUNT": DEFAULT_VIDEO_COUNT,
     }
     return Emitter().render(roots, constants)
 

@@ -60,6 +60,13 @@ class ShotBrief(BaseModel):
     motion_prompt: str = Field(
         description="Image-to-video instruction applied to this candidate's frame."
     )
+    video_negative_prompt: str = Field(
+        default="",
+        description="Negatives for the video stage. Separate from negative_prompt "
+        "because the stages fail differently: the image stage produces artefacts, "
+        "the video stage produces a still photograph with a moving camera, and the "
+        "image list never mentions motion at all.",
+    )
 
     # --- Human-readable rationale, surfaced in the UI and the report ---
     concept: str = Field(default="", description="One-line description of the creative idea.")
@@ -85,6 +92,12 @@ class BriefSet(BaseModel):
         "Reported as the sampler's diversity guarantee; 0 means duplicates exist.",
     )
     sampler: str = Field(default="latin_hypercube", description="Which sampler produced these.")
+    prompt_style: str = Field(
+        default="full",
+        description="Which prompt template produced these. Recorded per job so an "
+        "ablation over prompt verbosity can be attributed after the fact rather "
+        "than reconstructed from timestamps.",
+    )
 
     def __len__(self) -> int:
         return len(self.briefs)

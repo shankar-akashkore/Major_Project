@@ -39,7 +39,10 @@ from pathlib import Path
 from typing import Annotated
 
 import adproviders as P
+from adml import audio as A
 from adschema import (
+    DEFAULT_CANDIDATE_COUNT,
+    DEFAULT_VIDEO_COUNT,
     AdJobRequest,
     AppConfig,
     AspectRatio,
@@ -219,6 +222,11 @@ async def _run(svc: Services, record: JobRecord, providers: P.ProviderSet | None
         video_provider=providers.videos,
         llm_provider=providers.llm,
         on_progress=on_progress,
+        # Read per job rather than cached on the service: a user who drops a track
+        # into the directory expects the next job to use it, not the next restart.
+        # The directory is normally empty and that is fine — delivery synthesises a
+        # bed when there is nothing licensed to reach for.
+        audio_library=A.load_library(svc.settings.audio_root),
     )
     try:
         before = await svc.ledger.total_spent()
@@ -342,7 +350,8 @@ async def create_demo_job(
             palette=["#2b3a55", "#ce7777", "#f2e7d5"] if brand_palette else [],
         ),
         duration_seconds=duration_seconds,
-        candidate_count=3,
+        candidate_count=DEFAULT_CANDIDATE_COUNT,
+        video_count=DEFAULT_VIDEO_COUNT,
         seed=seed,
         consent=ConsentAttestation(has_model_release=True, not_a_public_figure=True),
     )
@@ -421,12 +430,17 @@ async def create_job(
     additional_prompt: str = Form(""),
     negative_constraints: str = Form(""),
     vertical: str = Form("other"),
+    # Empty string rather than a default level: "" means *derive from the
+    # vertical*, and there is no honest level to guess for `other`. See
+    # AdJobRequest.effective_scale.
+    product_scale: str = Form(""),
     platform: str = Form("instagram_reels"),
     mood: str = Form("warm_lifestyle"),
     palette: str = Form("", description="Comma-separated hex colours"),
     background: str = Form("soft_gradient"),
     duration_seconds: float = Form(9.0),
-    candidate_count: int = Form(3),
+    candidate_count: int = Form(DEFAULT_CANDIDATE_COUNT),
+    video_count: int = Form(DEFAULT_VIDEO_COUNT),
     seed: int = Form(0),
     locked_angle: str | None = Form(None),
     has_model_release: bool = Form(False),
@@ -459,6 +473,7 @@ async def create_job(
             additional_prompt=additional_prompt,
             negative_constraints=negative_constraints,
             vertical=vertical,
+            product_scale=product_scale or None,
             platform=platform,
             mood=mood,
             theme=ThemeSpec(
@@ -467,6 +482,7 @@ async def create_job(
             ),
             duration_seconds=duration_seconds,
             candidate_count=candidate_count,
+            video_count=video_count,
             seed=seed,
             locked_angle=locked_angle or None,
             consent=consent,

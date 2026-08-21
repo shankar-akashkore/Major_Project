@@ -248,6 +248,90 @@ def subject_scale(sal: np.ndarray, threshold: float = 0.5) -> float:
     return float((sal >= threshold).mean())
 
 
+# --- Product extent ---------------------------------------------------------
+#
+# How much of the frame the product occupies, recovered from the product's own
+# colours rather than from a learned detector.
+#
+# This exists because the obvious proxies do not work.  ``focal_concentration``
+# was used as a product-salience feature and is not one: measured across eleven
+# real Seedream frames it spans 0.31-0.50 with visibly correct and visibly
+# oversized frames interleaved.  Masked multi-scale template matching of the
+# rembg cutout was tried and is degenerate — every frame returns the smallest
+# template in the search range at a near-identical score, because
+# ``TM_CCORR_NORMED`` with a mask is maximised by the smallest window.  And face
+# detection, which would give a physical ruler, is barred from deciding anything
+# here: ``FaceReport`` already records that Haar cascades miss unevenly across
+# skin tones and poses, so a rejection built on one would reject some people's
+# photographs more often than others.
+#
+# What is left is the product's colour signature, which the cutout hands over for
+# free.  It is a genuinely weaker instrument than a detector and the limits are
+# stated on each function rather than discovered later.
+
+#: Lab chroma below which a colour identifies nothing.  A near-neutral matches a
+#: studio backdrop, a white sole and half a wardrobe.
+MIN_PRODUCT_CHROMA = 10.0
+
+#: How close a frame pixel must sit to a product colour to count as product.
+#: CIE76, where ~2.3 is just-noticeable; 12 is loose enough to survive the
+#: relighting a composition model applies and tight enough to exclude a backdrop.
+PRODUCT_MATCH_DELTA_E = 12.0
+
+
+def product_colour_signature(
+    rgba: np.ndarray, k: int = 6, min_chroma: float = MIN_PRODUCT_CHROMA
+) -> np.ndarray | None:
+    """Chromatic Lab centres of a product cutout, or ``None`` when it has none.
+
+    ``None`` is a real and common answer, not an error: a white trainer, a black
+    phone and a steel bottle have no chromatic signature, and for those this whole
+    approach is undefined.  Returning ``None`` rather than a neutral centre is
+    what keeps the caller from measuring the backdrop and calling it the product.
+
+    **A fully opaque image is refused, and that is the important case.**  It means
+    a photograph rather than a cutout — the caller fell back to the original
+    upload because rembg produced nothing usable — and the dominant colours of a
+    product photograph are its *backdrop's* colours as much as the product's.
+    Measured on a synthetic product swatch with no alpha, the resulting signature
+    matched 59% of a frame that contained a product covering 3% of it.  Real rembg
+    cutouts here are 60-80% transparent, so this separates the two cleanly, and it
+    is a fact about the pixels rather than a label that can be set by hand.
+    """
+    if rgba.ndim != 3 or rgba.shape[2] < 4:
+        return None
+    mask = rgba[:, :, 3] > 128
+    if not mask.any() or mask.all():
+        return None
+    doms = dominant_colors(rgba[:, :, :3], k=k, mask=mask)
+    if not doms:
+        return None
+    centres = rgb_to_lab(np.array([c for c, _ in doms], dtype=np.float64))
+    chromatic = centres[np.hypot(centres[:, 1], centres[:, 2]) > min_chroma]
+    return chromatic if len(chromatic) else None
+
+
+def product_area_share(
+    rgb: np.ndarray,
+    signature: np.ndarray,
+    max_delta_e: float = PRODUCT_MATCH_DELTA_E,
+    size: int = 256,
+) -> float:
+    """Share of the frame whose colour matches the product's own colours.
+
+    An upper bound on the product's extent, not a measurement of it: anything else
+    in the frame wearing the product's colours is counted too.  That asymmetry is
+    the reason the gate uses this only as a ceiling.  Over-reporting can make an
+    innocent frame look large, which one retry answers; under-reporting cannot
+    happen, so a genuinely oversized product cannot hide from it.
+    """
+    img = Image.fromarray(np.asarray(rgb)[..., :3].astype(np.uint8))
+    img.thumbnail((size, size), Image.BILINEAR)
+    lab = rgb_to_lab(np.asarray(img, dtype=np.float64)).reshape(-1, 3)
+    distance = delta_e_76(lab[:, None, :], signature[None, :, :])
+    return float((distance.min(axis=1) < max_delta_e).mean())
+
+
 # --- Palette ---------------------------------------------------------------
 
 

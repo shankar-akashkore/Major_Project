@@ -58,7 +58,11 @@ export function VideoStage({ ranking }: { ranking: RankedCandidate[] }) {
           const move = movement(candidate);
           const video = candidate.video;
           const slot = slotLetter(video.source_image_index);
-          const url = mediaUrl(video.asset);
+          // The mixed render, falling back to the native one. `video.asset` is the
+          // clip as the provider returned it, which has no audio track at all —
+          // playing it directly is why the delivered ads were silent in the browser
+          // even after the mix was working and written to storage.
+          const url = mediaUrl(video.platform_renders?.audio ?? video.asset);
           const poster = mediaUrl(video.thumbnail) ?? undefined;
           return (
             <Card key={candidate.rank} as="li" className="overflow-hidden">
@@ -70,7 +74,11 @@ export function VideoStage({ ranking }: { ranking: RankedCandidate[] }) {
                       poster={poster}
                       controls
                       loop
-                      muted
+                      // Deliberately *not* muted. `muted` is what autoplay
+                      // policies require, and there is no autoplay here — the user
+                      // presses play. All it did was guarantee that a soundtrack
+                      // this pipeline paid ffmpeg to produce arrived silent unless
+                      // the viewer thought to unmute it.
                       playsInline
                       preload="metadata"
                       className="size-full object-cover"

@@ -16,7 +16,8 @@ export type Timestamp = string;
 
 export const MIN_DURATION_S = 8;
 export const MAX_DURATION_S = 10;
-export const DEFAULT_CANDIDATE_COUNT = 3;
+export const DEFAULT_CANDIDATE_COUNT = 5;
+export const DEFAULT_VIDEO_COUNT = 2;
 
 // --- Enumerations ---
 
@@ -126,21 +127,21 @@ export const MOOD_VALUES: readonly Mood[] = [
   "high_energy",
 ];
 
-/** What the image-to-video stage should animate. */
+/** What the *subject* does during the clip. */
 export type MotionIntent =
-  | "slow_dolly_in"
-  | "slow_dolly_out"
-  | "orbit_left"
-  | "product_present"
-  | "handheld_drift"
-  | "static_subtle";
+  | "product_reveal"
+  | "hero_turn"
+  | "in_use"
+  | "offer_to_camera"
+  | "pick_up"
+  | "walk_in";
 export const MOTION_INTENT_VALUES: readonly MotionIntent[] = [
-  "slow_dolly_in",
-  "slow_dolly_out",
-  "orbit_left",
-  "product_present",
-  "handheld_drift",
-  "static_subtle",
+  "product_reveal",
+  "hero_turn",
+  "in_use",
+  "offer_to_camera",
+  "pick_up",
+  "walk_in",
 ];
 
 /** Delivery target. Drives aspect ratio and the safe-area overlay. */
@@ -160,6 +161,21 @@ export const PLATFORM_VALUES: readonly Platform[] = [
   "youtube_instream",
   "tiktok",
   "facebook_feed",
+];
+
+/** How large the product is in the real world. */
+export type ProductScale =
+  | "palm"
+  | "one_hand"
+  | "two_hands"
+  | "worn"
+  | "floor_standing";
+export const PRODUCT_SCALE_VALUES: readonly ProductScale[] = [
+  "palm",
+  "one_hand",
+  "two_hands",
+  "worn",
+  "floor_standing",
 ];
 
 /** How generations are obtained. */
@@ -228,8 +244,8 @@ export const VERTICAL_VALUES: readonly Vertical[] = [
 
 // --- Models ---
 
-/** Everything needed to run one 3-candidate ad job. */
-// derived (not on the wire): aspect_ratio
+/** Everything needed to run one ad job. */
+// derived (not on the wire): animates_everything, aspect_ratio, effective_scale
 export interface AdJobRequest {
   job_id: string;
   created_at: Timestamp;
@@ -250,6 +266,13 @@ export interface AdJobRequest {
    */
   negative_constraints: string;
   vertical: Vertical;
+  /**
+   * How big the product is in real life. Left unset it is derived from the vertical;
+   * set it explicitly when the vertical is 'other' or when the product is unusual for
+   * its category. This is the single control that stops the generator rendering a
+   * phone the size of a person.
+   */
+  product_scale: ProductScale | null;
   platform: Platform;
   audience: AudienceSpec;
   theme: ThemeSpec;
@@ -258,8 +281,17 @@ export interface AdJobRequest {
   aspect_ratio_override: AspectRatio | null;
   /** Video length. Kept in the 8-10 s window the project commits to. (range 8.0–10.0) */
   duration_seconds: number;
-  /** Range 1–6. */
+  /**
+   * Image candidates to generate. Cheap, so this is the exploration budget. (range
+   * 1–6)
+   */
   candidate_count: number;
+  /**
+   * How many of the candidates are animated, taken in image-stage predicted order. Set
+   * equal to candidate_count to animate everything, which is what an evaluation run
+   * needs — see AdJobRequest.animates_everything. (range 1–6)
+   */
+  video_count: number;
   /**
    * Pin the camera angle across all candidates. Left None, the sampler varies angle —
    * which is what makes the candidates genuinely different.
@@ -336,6 +368,12 @@ export interface AudioReport {
    * placeholder from being described as a soundtrack.
    */
   is_test_signal: boolean;
+  /**
+   * True when the soundtrack was synthesised for this ad rather than licensed from
+   * someone. Not a placeholder — it is what ships — but a reader of the manifest
+   * should not have to assume which of the two it is.
+   */
+  generated: boolean;
   note: string;
 }
 
@@ -350,6 +388,12 @@ export interface BriefSet {
   min_pairwise_distance: number;
   /** Which sampler produced these. */
   sampler: string;
+  /**
+   * Which prompt template produced these. Recorded per job so an ablation over prompt
+   * verbosity can be attributed after the fact rather than reconstructed from
+   * timestamps.
+   */
+  prompt_style: string;
 }
 
 /** A snapshot the UI shows and the governor enforces. */
@@ -512,6 +556,12 @@ export interface ImageCandidate {
   gate: GateResult | null;
   /** Image-stage prediction. Only set once the gate passes. */
   score: ScoreBreakdown | null;
+  /**
+   * Whether this candidate was animated. False means the image-stage predictor ranked
+   * it below the cut and no video exists for it — which is a decision the system made,
+   * not a failure, and the UI has to say so.
+   */
+  promoted: boolean;
 }
 
 /** Everything stage 1 established about the uploads. */
@@ -749,6 +799,13 @@ export interface ShotBrief {
   negative_prompt: string;
   /** Image-to-video instruction applied to this candidate's frame. */
   motion_prompt: string;
+  /**
+   * Negatives for the video stage. Separate from negative_prompt because the stages
+   * fail differently: the image stage produces artefacts, the video stage produces a
+   * still photograph with a moving camera, and the image list never mentions motion at
+   * all.
+   */
+  video_negative_prompt: string;
   /** One-line description of the creative idea. */
   concept: string;
 }

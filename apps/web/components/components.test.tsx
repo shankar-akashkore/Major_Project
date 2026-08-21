@@ -231,6 +231,22 @@ test("a gate with an unimplemented check refuses to claim identity was verified"
   assert.doesNotMatch(body, /both verified/);
 });
 
+test("an unmeasurable check does not claim a model is missing", () => {
+  // `product_scale` is pending because the frame could not be measured, not
+  // because a model has not landed — and the caveat has to say the right one.
+  const gate = {
+    verdict: "pass",
+    attempt: 1,
+    checks: [check("product_scale", true, false), check("palette_delta_e", true)],
+  } as GateResult;
+
+  const body = text(<ImageStage images={[image(0, { gate })]} />);
+  assert.match(body, /product scale did not run/);
+  assert.match(body, /verifies nothing/);
+  // No identity check is pending, so the identity sentence must not appear.
+  assert.doesNotMatch(body, /Identity is not verified/);
+});
+
 test("a gate whose identity checks really ran says they were verified", () => {
   const gate = {
     verdict: "pass",
@@ -263,6 +279,35 @@ test("the image stage shows the predicted order, which is what the claim is abou
   assert.match(body, /predicted #1/);
 });
 
+// --- Seeing the frame whole -----------------------------------------------
+//
+// The grid crops every candidate to 4:5 with `object-cover`, and the crop is
+// exactly where a clipped hand or a product pushed out of the safe area hides.
+
+test("every frame can be opened full size, named so the control says which one", () => {
+  const markup = html(<ImageStage images={[image(0), image(1)]} />);
+  assert.match(markup, /aria-label="View candidate A full size"/);
+  assert.match(markup, /aria-label="View candidate B full size"/);
+  assert.match(text(<ImageStage images={[image(0)]} />), /Full size/);
+});
+
+test("a candidate with no frame offers nothing to open", () => {
+  const missing = image(1, { asset: { key: "", url: null } as unknown as ImageCandidate["asset"] });
+  const markup = html(<ImageStage images={[image(0), missing]} />);
+  assert.match(markup, /no frame/);
+  assert.match(markup, /aria-label="View candidate A full size"/);
+  assert.doesNotMatch(markup, /aria-label="View candidate B full size"/);
+});
+
+test("the overlay is closed until something is clicked, so the grid renders alone", () => {
+  // `renderToStaticMarkup` runs no effects and has no document. A lightbox that
+  // needed either to render its closed state would break every page that mounts
+  // this component on the server.
+  const markup = html(<ImageStage images={[image(0), image(1)]} />);
+  assert.doesNotMatch(markup, /role="dialog"/);
+  assert.doesNotMatch(markup, /Close preview/);
+});
+
 // --- One job is not the measurement ---------------------------------------
 
 test("the video stage says a single job is an illustration, whatever the outcome", () => {
@@ -274,6 +319,41 @@ test("the video stage says a single job is an illustration, whatever the outcome
     assert.match(body, /is an illustration, not the measurement/);
     assert.match(body, /stage_agreement\.py/);
   }
+});
+
+// --- The soundtrack has to survive the trip to the browser -----------------
+//
+// Delivery mixes a bed onto every clip, normalises it, writes it to storage and
+// records the credit. None of that is audible if the player points at the wrong
+// file or mutes itself, and both of those were true: the element played
+// `video.asset` — the provider's own render, which has no audio track at all —
+// and carried a hard-coded `muted`. The user's report was "the video does not
+// support sound", and they were right twice over.
+
+test("the player prefers the mixed render over the provider's silent one", () => {
+  const mixed = candidate(1, 1, {
+    platform_renders: { audio: { key: "1_with_audio.mp4", url: "/media/1_with_audio.mp4" } },
+  });
+  // `html`, not `text`: the bug lived entirely in attributes, and `text` strips
+  // exactly the part of the markup this is about.
+  const body = html(<VideoStage ranking={[mixed]} />);
+
+  assert.match(body, /src="[^"]*\/1_with_audio\.mp4"/);
+  assert.doesNotMatch(body, /src="[^"]*\/clip_1\.mp4"/);
+});
+
+test("a clip with no mix still plays, from the native render", () => {
+  // Delivery can fail the mix and say so. Falling back to a silent clip is the
+  // right answer; rendering "no clip" because one key was absent is not.
+  const body = html(<VideoStage ranking={[candidate(1, 1)]} />);
+  assert.match(body, /src="[^"]*\/clip_1\.mp4"/);
+});
+
+test("the player is not muted, because nothing here autoplays", () => {
+  const body = html(<VideoStage ranking={[candidate(1, 1)]} />);
+  assert.doesNotMatch(body, /muted/);
+  // And the controls are still there, so the viewer can mute it themselves.
+  assert.match(body, /controls/);
 });
 
 test("an order that held is reported as a finding, not as a missing comparison", () => {

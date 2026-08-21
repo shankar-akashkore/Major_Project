@@ -119,6 +119,7 @@ def _form(**overrides) -> dict[str, str]:
         "mood": "calm_premium",
         "duration_seconds": "9.0",
         "candidate_count": "3",
+        "video_count": "2",
         "seed": "7",
         "has_model_release": "true",
         "not_a_public_figure": "true",
@@ -274,8 +275,10 @@ async def test_a_posted_upload_runs_to_delivery_and_every_route_agrees(client, s
     record = JobRecord.model_validate((await client.get(f"/api/jobs/{job_id}")).json())
     assert record.state.value == "completed", record.error
     assert len(record.result.images) == 3
-    assert len(record.result.videos) == 3
-    assert len(record.result.ranking) == 3
+    # Two, not three: the form posts video_count=2, so the image-stage
+    # predictor cut one candidate before the video stage ever saw it.
+    assert len(record.result.videos) == 2
+    assert len(record.result.ranking) == 2
     assert record.result.intake is not None
 
     # The board row: a summary, not the record.
@@ -605,3 +608,62 @@ def test_the_default_services_read_the_environment_rather_than_a_hardcoded_path(
     assert services.settings is settings
     assert services.governor().settings is settings
     assert services.running == {}
+
+
+async def test_the_product_size_reaches_the_generation_prompt(client, services, uploads):
+    """The whole point of the field, checked end to end over HTTP.
+
+    Unit tests cover the brief compiler and the schema resolver separately, and
+    both would pass while the form field was quietly dropped between them — which
+    is the failure mode that matters, because a size control that silently does
+    nothing is worse than no control at all.
+    """
+    launched = (
+        (
+            await client.post(
+                "/api/jobs",
+                data=_form(vertical="other", product_scale="one_hand", video_count="1"),
+                files=_files(uploads),
+            )
+        )
+        .raise_for_status()
+        .json()
+    )
+    await services.wait_for_jobs()
+
+    record = JobRecord.model_validate((await client.get(f"/api/jobs/{launched['job_id']}")).json())
+    assert record.state.value == "completed", record.error
+    assert record.request.product_scale is not None
+
+    for brief in record.result.briefs.briefs:
+        assert "held comfortably in one hand" in brief.image_prompt
+        assert "Do not enlarge the product." in brief.image_prompt
+
+
+async def test_an_unstated_size_does_not_invent_one(client, services, uploads):
+    """``other`` with nothing set must stay silent about the measurement.
+
+    It still gets the rule that forbids enlargement — that half needs no size —
+    but a job that was never told how big the product is must not have a size
+    asserted on its behalf.
+    """
+    launched = (
+        (
+            await client.post(
+                "/api/jobs",
+                data=_form(vertical="other", video_count="1"),
+                files=_files(uploads),
+            )
+        )
+        .raise_for_status()
+        .json()
+    )
+    await services.wait_for_jobs()
+
+    record = JobRecord.model_validate((await client.get(f"/api/jobs/{launched['job_id']}")).json())
+    assert record.request.product_scale is None
+    assert record.request.effective_scale is None
+
+    for brief in record.result.briefs.briefs:
+        assert "Do not enlarge the product." in brief.image_prompt
+        assert "held comfortably in one hand" not in brief.image_prompt

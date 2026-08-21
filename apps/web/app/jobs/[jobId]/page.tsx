@@ -88,6 +88,19 @@ export default function JobPage({ params }: { params: Promise<{ jobId: string }>
         <div className="mt-2 flex flex-wrap gap-1.5">
           <Badge>{humanise(request.platform)}</Badge>
           <Badge>{humanise(request.vertical)}</Badge>
+          {/* Shown even when unset, and warned about when it is. A job that told
+              the generator nothing about how big the product is will produce a
+              product of arbitrary size, and the job record is where that has to
+              be visible after the fact. */}
+          {request.product_scale ? (
+            <Badge title="Physical size stated to the generator.">
+              {humanise(request.product_scale)}
+            </Badge>
+          ) : (
+            <Badge tone="warn" title="No explicit size; derived from the vertical, which may imply none.">
+              size auto
+            </Badge>
+          )}
           <Badge>{humanise(request.mood)}</Badge>
           <Badge>{seconds(request.duration_seconds)}</Badge>
           <Badge>seed {request.seed}</Badge>

@@ -47,6 +47,8 @@ sys.path.insert(0, str(ROOT / "services" / "worker"))
 
 import adproviders as P  # noqa: E402
 from adschema import (  # noqa: E402
+    DEFAULT_CANDIDATE_COUNT,
+    DEFAULT_VIDEO_COUNT,
     AdJobRequest,
     AspectRatio,
     BackgroundTreatment,
@@ -189,6 +191,7 @@ async def _run(args: argparse.Namespace) -> int:
         ),
         duration_seconds=duration,
         candidate_count=args.candidates,
+        video_count=args.videos,
         seed=args.seed,
         consent=ConsentAttestation(has_model_release=True, not_a_public_figure=True),
     )
@@ -297,7 +300,8 @@ def main() -> int:
     )
     parser.add_argument("--palette", default="", help="comma-separated hex; empty means extract it")
     parser.add_argument("--duration", type=float, default=9.0)
-    parser.add_argument("--candidates", type=int, default=3)
+    parser.add_argument("--candidates", type=int, default=DEFAULT_CANDIDATE_COUNT)
+    parser.add_argument("--videos", type=int, default=DEFAULT_VIDEO_COUNT)
     parser.add_argument("--seed", type=int, default=7)
     parser.add_argument("--price", action="store_true", help="print the cost, call nothing")
     parser.add_argument(

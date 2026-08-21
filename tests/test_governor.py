@@ -8,6 +8,8 @@ charge, or a live provider leaking into what was supposed to be a free run.
 
 from __future__ import annotations
 
+import asyncio
+
 import adproviders as P
 import pytest
 from adschema import ProviderMode
@@ -327,3 +329,80 @@ async def test_unimplemented_live_provider_fails_loudly():
 
     with pytest.raises(P.ProviderUnavailable, match="unknown"):
         P.get_image_provider(live_settings(image_provider="nonexistent-model"))
+
+
+class _YieldingLedger(P.InMemoryLedger):
+    """An in-memory ledger whose reads actually suspend.
+
+    Necessary, and the reason is worth stating: the first version of the test below
+    used `InMemoryLedger` directly and passed with the governor's lock deliberately
+    removed. `InMemoryLedger.total_spent` is `async def` but awaits nothing, and a
+    coroutine that never awaits never yields — the check and the reservation were
+    atomic by accident, so the test asserted a property the code did not have.
+
+    The production ledger is `SqlLedger` over aiosqlite, where reading the total is
+    real I/O and really does suspend. One `sleep(0)` is the smallest faithful model
+    of that, and with it the test fails without the lock and passes with it.
+    """
+
+    async def total_spent(self) -> float:
+        return await self._stale(await super().total_spent())
+
+    async def job_spent(self, job_id: str) -> float:
+        return await self._stale(await super().job_spent(job_id))
+
+    @staticmethod
+    async def _stale(value: float) -> float:
+        """Observe the value, *then* suspend, then deliver it.
+
+        The order is the whole point and the first attempt got it backwards. A
+        read that suspends before it looks sees whatever is true when it resumes,
+        which is not a race — it is a correctly serialised read that happens to be
+        slow. A real query observes the database and delivers the answer later,
+        which is how two callers both come away believing the ledger is empty.
+        """
+        await asyncio.sleep(0)
+        return value
+
+
+async def test_concurrent_calls_cannot_each_reserve_the_same_headroom():
+    """The check and the reservation are one critical section, or they are neither.
+
+    This is the failure the governor exists to prevent, reached by the door that
+    opened when the pipeline stopped generating one slot at a time. `status()`
+    awaits the database, and an await is a yield: four callers could each read the
+    same total, each conclude they fit under the cap, and each reserve. Nobody
+    exceeded the budget as they understood it and the budget was exceeded anyway.
+
+    Three calls of $1.00 against a $2.50 per-job cap. Exactly two may proceed.
+    """
+    ledger = _YieldingLedger()
+    governor = P.CostGovernor(
+        ledger, live_settings(budget_total_usd=100.0, budget_per_job_usd=2.50)
+    )
+
+    async def call() -> str:
+        # Long enough that every caller is inside `guarded_call` before any of them
+        # settles. Without the lock this is precisely the window that loses money.
+        await asyncio.sleep(0.05)
+        return "generated"
+
+    async def attempt() -> str:
+        return await governor.guarded_call(
+            job_id="j",
+            provider="test",
+            model="test",
+            operation="image",
+            estimated_usd=1.00,
+            quantity=1.0,
+            call=call,
+        )
+
+    outcomes = await asyncio.gather(*(attempt() for _ in range(3)), return_exceptions=True)
+
+    refused = [o for o in outcomes if isinstance(o, P.BudgetExceeded)]
+    assert len(refused) == 1, (
+        f"{3 - len(refused)} of 3 calls got through a $2.50 cap at $1.00 each — "
+        "the budget check and the reservation are not atomic"
+    )
+    assert await ledger.job_spent("j") == pytest.approx(2.00)

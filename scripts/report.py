@@ -44,6 +44,7 @@ import adproviders as P  # noqa: E402
 from adml import figures as FIG  # noqa: E402
 from adml import report as RP  # noqa: E402
 from adml import stages as ST  # noqa: E402
+from adschema import DEFAULT_CANDIDATE_COUNT, DEFAULT_VIDEO_COUNT  # noqa: E402
 
 DEFAULT_OUT = ROOT / "docs" / "results"
 COMMAND = "scripts/report.py"
@@ -347,12 +348,17 @@ def _corpus_section(report: RP.Report, out: Path, *, n_sets_now: int) -> None:
 def _delivery_section(report: RP.Report, harvest: ST.Harvest, spent_usd: float) -> None:
     section = report.section(
         "The working product",
-        "The pipeline runs end to end: intake and product cutout, a sampled design space "
-        "expanded into shot briefs, three image candidates, a hard quality gate, the "
-        "image-stage ranking, three 8–10 s videos, the video-stage ranking with "
+        # Counts come from the schema rather than from this sentence. They were
+        # written out as "three" and "three" here, and stayed that way through the
+        # change to five candidates and two videos — a report describing a pipeline
+        # the project no longer runs.
+        "The pipeline runs end to end: intake and product cutout, a sampled design "
+        f"space expanded into shot briefs, {DEFAULT_CANDIDATE_COUNT} image candidates, "
+        "a hard quality gate, the image-stage ranking, which promotes the top "
+        f"{DEFAULT_VIDEO_COUNT} to 8–10 s video, the video-stage ranking with "
         "explanations, and delivery — saliency-aware reframes per platform, mockup "
-        "previews, an ffmpeg audio mix gated on a recorded licence, report cards and a "
-        "download bundle.",
+        "previews, an ffmpeg audio mix carrying a licence or a synthesised bed that "
+        "needs none, report cards and a download bundle.",
     )
 
     stamp = RP.Stamp(
@@ -360,7 +366,11 @@ def _delivery_section(report: RP.Report, harvest: ST.Harvest, spent_usd: float) 
         unit="completed job records",
         n_sets=harvest.n_sets,
         labels_are_real=False,
-        note="mock and replay tiers only; no premium generation has been paid for",
+        note=(
+            f"{harvest.n_premium_sets} premium set(s) among them"
+            if harvest.n_premium_sets
+            else "mock and replay tiers only; no premium generation has been paid for"
+        ),
     )
     table = RP.Table(
         key="delivery",
@@ -383,21 +393,36 @@ def _delivery_section(report: RP.Report, harvest: ST.Harvest, spent_usd: float) 
         item="Total spend",
         value=f"${spent_usd:.4f}",
         note=(
-            "contract smoke tests only; mock mode remains the default"
+            f"{harvest.n_premium_sets} premium job(s) plus the contract smoke "
+            "tests; mock mode remains the default"
+            if harvest.n_premium_sets
+            else "contract smoke tests only; mock mode remains the default"
             if spent_usd > 0
             else "no API call has been made; mock mode is the default"
         ),
     )
-    table.pending_row(
-        "Premium-tier jobs",
-        "the two fal contract smoke tests have been run and both adapters are confirmed "
-        "against the live API (see docs/provider-spike.md), but no full job has been "
-        "generated, so the golden set is still frozen from synthetic references"
-        if spent_usd > 0
-        else "the two fal contract smoke tests ($0.39) have not been run and no key has "
-        "been supplied, so no paid generation exists and the golden set is frozen "
-        "from synthetic references",
-    )
+    # Three states, not two. Keying this off `spent_usd > 0` could not tell a
+    # $0.39 pair of smoke tests from a $2.22 job that ran the entire pipeline, so
+    # it went on claiming no full job existed after one had been paid for. The
+    # tier is recorded per candidate; the count is read rather than inferred.
+    if harvest.n_premium_sets:
+        table.add(
+            item="Premium-tier jobs",
+            value=harvest.n_premium_sets,
+            note="paid generation on the live API; the golden set is still frozen "
+            "from synthetic references and should be re-frozen from one of these",
+        )
+    else:
+        table.pending_row(
+            "Premium-tier jobs",
+            "the two fal contract smoke tests have been run and both adapters are confirmed "
+            "against the live API (see docs/provider-spike.md), but no full job has been "
+            "generated, so the golden set is still frozen from synthetic references"
+            if spent_usd > 0
+            else "the two fal contract smoke tests ($0.39) have not been run and no key has "
+            "been supplied, so no paid generation exists and the golden set is frozen "
+            "from synthetic references",
+        )
     table.pending_row(
         "Research-tier clips",
         "notebooks/colab_video.ipynb has not been run on a GPU, so the free clip corpus "

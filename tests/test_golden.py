@@ -197,8 +197,11 @@ def test_a_bundle_round_trips_through_its_manifest(frozen):
 
     assert reloaded.to_dict() == bundle.to_dict()
     assert reloaded.slug == SLUG
-    assert len(reloaded.frames) == 3
-    assert len(reloaded.clips) == 3
+    # Derived from the request the bundle carries, not written out. The two counts
+    # are a product decision now — three frames and two clips here — and a test
+    # that hard-codes them fails for the wrong reason when that decision moves.
+    assert len(reloaded.frames) == reloaded.request["candidate_count"]
+    assert len(reloaded.clips) == reloaded.request["video_count"]
     assert set(reloaded.uploads) == {"human", "product"}
 
 
@@ -207,8 +210,10 @@ def test_every_frozen_asset_is_present_and_hashes_to_the_manifest(frozen):
     storage = P.LocalStorage(root)
 
     assert bundle.verify(storage) == []
-    # Two uploads, three frames, three clips — the whole of what cannot be recomputed.
-    assert len(bundle.assets()) == 8
+    # Two uploads plus every frame and every clip — the whole of what cannot be
+    # recomputed. Fewer clips than frames is the point of the shape, not a gap.
+    expected = 2 + bundle.request["candidate_count"] + bundle.request["video_count"]
+    assert len(bundle.assets()) == expected
 
 
 def test_the_frozen_request_is_the_one_that_was_submitted(frozen):
@@ -481,9 +486,11 @@ async def test_a_freeze_captures_generations_the_cache_served(tmp_path):
     # The same job again, against a ledger that now holds every fingerprint.
     second, _ = await _freeze(storage, settings, ledger, slug="second")
 
-    assert len(second.frames) == 3
-    assert len(second.clips) == 3
-    assert len(second.provenance["backfilled"]) == 6
+    assert len(second.frames) == second.request["candidate_count"]
+    assert len(second.clips) == second.request["video_count"]
+    # Every frame and every clip came back from the cache — the count follows the
+    # two request fields rather than assuming they are equal.
+    assert len(second.provenance["backfilled"]) == len(second.frames) + len(second.clips)
     assert second.verify(storage) == []
 
 

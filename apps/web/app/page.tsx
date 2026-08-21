@@ -42,15 +42,18 @@ import {
   BACKGROUND_TREATMENT_VALUES,
   CAMERA_ANGLE_VALUES,
   DEFAULT_CANDIDATE_COUNT,
+  DEFAULT_VIDEO_COUNT,
   MAX_DURATION_S,
   MIN_DURATION_S,
   MOOD_VALUES,
   PLATFORM_VALUES,
+  PRODUCT_SCALE_VALUES,
   VERTICAL_VALUES,
   type BackgroundTreatment,
   type CameraAngle,
   type Mood,
   type Platform,
+  type ProductScale,
   type Vertical,
 } from "@/lib/contract.ts";
 import { safeAreaSummary } from "@/lib/presentation.ts";
@@ -70,6 +73,9 @@ export default function NewJobPage() {
   const [negative, setNegative] = useState("");
 
   const [vertical, setVertical] = useState<Vertical>("other");
+  // "" means derive from the vertical. Not a ProductScale level, because there is
+  // no honest level to stand for "unknown" — see AdJobRequest.effective_scale.
+  const [productScale, setProductScale] = useState<ProductScale | "">("");
   const [platform, setPlatform] = useState<Platform>("instagram_reels");
   const [mood, setMood] = useState<Mood>("warm_lifestyle");
   const [background, setBackground] = useState<BackgroundTreatment>("soft_gradient");
@@ -113,12 +119,14 @@ export default function NewJobPage() {
     form.set("additional_prompt", additional);
     form.set("negative_constraints", negative);
     form.set("vertical", vertical);
+    form.set("product_scale", productScale);
     form.set("platform", platform);
     form.set("mood", mood);
     form.set("palette", palette);
     form.set("background", background);
     form.set("duration_seconds", String(duration));
     form.set("candidate_count", String(DEFAULT_CANDIDATE_COUNT));
+    form.set("video_count", String(DEFAULT_VIDEO_COUNT));
     form.set("seed", String(seed));
     if (lockAngle) form.set("locked_angle", angle);
     form.set("has_model_release", String(hasRelease));
@@ -231,6 +239,23 @@ export default function NewJobPage() {
             <div className="grid gap-4 sm:grid-cols-2">
               <Field label="Product vertical" hint="A predictor feature, not a label.">
                 <Select value={vertical} onChange={setVertical} options={VERTICAL_VALUES} />
+              </Field>
+              <Field
+                label="Product size"
+                hint={
+                  productScale !== ""
+                    ? "Stated to the generator directly."
+                    : vertical === "other"
+                      ? "\u26a0 \u2018Other\u2019 implies no size, so none will be stated. Set it."
+                      : "Derived from the vertical."
+                }
+              >
+                <Select
+                  value={productScale}
+                  onChange={setProductScale}
+                  options={["", ...PRODUCT_SCALE_VALUES]}
+                  format={(v) => (v === "" ? "auto (from vertical)" : v.replace(/_/g, " "))}
+                />
               </Field>
               <Field
                 label="Platform"

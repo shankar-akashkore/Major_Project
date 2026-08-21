@@ -9,6 +9,8 @@ from __future__ import annotations
 import adproviders as P
 import pytest
 from adschema import (
+    DEFAULT_CANDIDATE_COUNT,
+    DEFAULT_VIDEO_COUNT,
     AdJobRequest,
     AspectRatio,
     ConsentAttestation,
@@ -75,7 +77,11 @@ def make_request(references):
             "mood": Mood.CALM_PREMIUM,
             "theme": ThemeSpec(palette=list(BRAND_PALETTE)),
             "duration_seconds": 9.0,
-            "candidate_count": 3,
+            # The product's real shape, not a round number: five image
+            # candidates, two of them animated. A fixture that keeps the old
+            # 1:1 cascade would leave the promotion gate untested everywhere.
+            "candidate_count": DEFAULT_CANDIDATE_COUNT,
+            "video_count": DEFAULT_VIDEO_COUNT,
             "seed": 7,
             "consent": ConsentAttestation(has_model_release=True, not_a_public_figure=True),
         }

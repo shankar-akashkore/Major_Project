@@ -213,10 +213,19 @@ export type GateSummary = {
   /** Checks that ran and failed. */
   failed: GateCheck[];
   /**
-   * Checks whose model has not landed. These *passed* in the pipeline, and saying
-   * so without saying they did not run would be claiming a verification.
+   * Checks that did not run. These *passed* in the pipeline, and saying so without
+   * saying they did not run would be claiming a verification.
+   *
+   * Not all for the same reason any more. `product_identity`, `face_identity` and
+   * `nsfw` await model weights; `product_scale` awaits a frame it can measure —
+   * it locates the product by colour, so a white product, a missing cutout or a
+   * synthetic renderer all leave it with nothing to find. The UI must not tell the
+   * user a model has not landed when the real answer is that this frame could not
+   * be measured, so the distinction is carried rather than flattened.
    */
   pending: GateCheck[];
+  /** Whether an *identity* check is among the pending ones. */
+  identityPending: boolean;
   /** True only when the identity checks genuinely executed and passed. */
   verifiedIdentity: boolean;
   text: string;
@@ -240,18 +249,36 @@ export function gateSummary(gate: GateResult | null | undefined): GateSummary | 
   const failed = ran.filter((c) => !c.passed);
   const passed = ran.filter((c) => c.passed);
   const identityRan = ran.filter((c) => IDENTITY_CHECKS.includes(c.name));
+  const identityPending = pending.some((c) => IDENTITY_CHECKS.includes(c.name));
   const verifiedIdentity =
     identityRan.length === IDENTITY_CHECKS.length && identityRan.every((c) => c.passed);
 
   let text: string;
   if (failed.length > 0) {
-    text = failed.map((c) => `${humanise(c.name)} ${num(c.value)} vs ${num(c.threshold)}`).join(", ");
+    text = failed
+      .map(
+        (c) =>
+          // "over"/"under" rather than a bare "vs": `product_scale` is a ceiling,
+          // and "0.294 vs 0.160" reads as a shortfall when it is an excess.
+          `${humanise(c.name)} ${num(c.value)} ${c.higher_is_better ? "under" : "over"} ${num(
+            c.threshold,
+          )}`,
+      )
+      .join(", ");
   } else if (pending.length > 0) {
     text = `${passed.length} check(s) passed, ${pending.length} not yet implemented`;
   } else {
     text = `all ${passed.length} checks passed`;
   }
-  return { verdict: gate.verdict, passed, failed, pending, verifiedIdentity, text };
+  return {
+    verdict: gate.verdict,
+    passed,
+    failed,
+    pending,
+    identityPending,
+    verifiedIdentity,
+    text,
+  };
 }
 
 // --- Progress ------------------------------------------------------------
@@ -420,4 +447,28 @@ export function resolveMediaUrl(
   }
   if (!asset.key) return null;
   return `${base}/media/${asset.key}`;
+}
+
+/**
+ * What a saved frame is called on disk.
+ *
+ * `candidate-B.png`, not `img_1.png`. The download exists so a frame can be put in
+ * a slide or a report next to the ranking it came from, and a folder of `img_0`
+ * through `img_4` from three different jobs loses exactly the association that made
+ * it worth saving.
+ *
+ * The extension comes from the storage key first, because the key is what the
+ * pipeline actually wrote — a provider mislabelling its own response cannot rename
+ * the file on disk. `mime_type` is the fallback, and `jpeg` is spelled the way a
+ * file manager expects.
+ */
+export function downloadName(
+  asset: { key: string; mime_type?: string | null } | null | undefined,
+  slot: string,
+): string {
+  const key = asset?.key ?? "";
+  const fromKey = /\.([a-z0-9]{2,4})$/i.exec(key)?.[1];
+  const fromMime = /^image\/([a-z0-9]+)/i.exec(asset?.mime_type ?? "")?.[1];
+  const raw = (fromKey ?? fromMime ?? "png").toLowerCase();
+  return `candidate-${slot}.${raw === "jpeg" ? "jpg" : raw}`;
 }

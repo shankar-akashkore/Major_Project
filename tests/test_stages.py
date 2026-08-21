@@ -48,7 +48,7 @@ def brief(index: int) -> ShotBrief:
             angle=CameraAngle.EYE_LEVEL,
             lighting=Lighting.SOFT_DIFFUSED,
             composition=Composition.CENTERED_HERO,
-            motion=MotionIntent.SLOW_DOLLY_IN,
+            motion=MotionIntent.PRODUCT_REVEAL,
             seed=index,
         ),
         image_prompt="a prompt",

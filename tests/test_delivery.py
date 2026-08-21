@@ -67,7 +67,7 @@ def _offset_subject(
             composition=composition,
             label="",
             t=i / max(1, n - 1),
-            motion=MotionIntent.STATIC_SUBTLE,
+            motion=MotionIntent.HERO_TURN,
             rng_seed=3 + i,
         )
         frames.append(np.asarray(image))
@@ -138,18 +138,20 @@ def test_an_unchanged_ratio_is_a_noop_despite_even_dimension_rounding():
     assert plan.retained_salience == 1.0
 
 
-@pytest.mark.parametrize(
-    "motion",
-    [MotionIntent.STATIC_SUBTLE, MotionIntent.HANDHELD_DRIFT, MotionIntent.ORBIT_LEFT],
-)
+@pytest.mark.parametrize("motion", list(MotionIntent))
 def test_holding_the_window_still_costs_almost_nothing_on_real_clip_motion(motion):
     """The measurement that justifies a static crop window.
 
-    Ad motion over 8-10 s is a dolly or a drift, not a chase. Measured on the mock
-    renderer's own motion: a per-frame tracker would gain 0.000 on `static_subtle`
-    and `handheld_drift`, and 0.002 on `orbit_left` — whose subject travels 12.5% of
-    the short edge. Paying that to avoid a jittering frame is obviously right, and it
-    is only obviously right because the number was taken.
+    A subject in an 8-10 s ad works within the frame; it does not cross it. Measured
+    on the mock renderer's own motion, re-taken after the motion axis was rewritten
+    from camera moves to performances: a per-frame tracker would gain 0.0019 at worst
+    (`hero_turn`, whose subject swings 8.0% of the short edge) and 0.0000 at best
+    (`product_reveal`, which is vertical and central). Paying that to avoid a
+    jittering frame is obviously right, and it is only obviously right because the
+    number was taken.
+
+    Parametrised over the whole axis rather than a chosen three, so a motion level
+    added later cannot quietly break the assumption the crop window rests on.
     """
     from adproviders.mock import _render_frame
 
@@ -424,8 +426,18 @@ async def test_the_smart_crop_benefit_is_reported_as_a_comparison(delivered):
 
 
 @needs_ffmpeg
-async def test_no_bed_means_no_audio_and_a_stated_reason(storage, governor, make_request):
-    """This project ships no audio content, and says so rather than going silent."""
+async def test_a_job_with_no_music_library_still_delivers_a_soundtrack(
+    storage, governor, make_request
+):
+    """An advertisement with no sound is not a deliverable.
+
+    This test used to assert the opposite — that no bed meant no audio and a note
+    explaining why — and it passed for as long as it took someone to watch the
+    output. The reasoning behind it was sound and is unchanged: this project ships
+    no music, and `AudioBed` refuses audio whose licence is not recorded. The
+    conclusion drawn from it was not. "We own no music" is answered by synthesising
+    some, not by shipping silence and describing it.
+    """
     import adproviders as P
 
     pipeline = Pipeline(
@@ -435,11 +447,65 @@ async def test_no_bed_means_no_audio_and_a_stated_reason(storage, governor, make
         video_provider=P.MockVideoProvider(storage),
         llm_provider=P.MockLLMProvider(),
         audio_bed=None,
+        audio_library=[],
     )
     record = await pipeline.run(make_request())
     audio = record.result.delivery.audio
-    assert not audio.attached
-    assert "licence" in audio.note
+
+    assert audio.attached
+    # Synthesised, and saying so. A manifest that leaves the reader to assume the
+    # soundtrack was licensed is the same provenance failure as an unrecorded
+    # licence, pointing the other way.
+    assert audio.generated
+    assert not audio.is_test_signal
+    assert "no third-party rights" in audio.credit
+    assert audio.measured_lufs is not None and -17.0 < audio.measured_lufs < -11.0
+
+
+@needs_ffmpeg
+async def test_every_delivered_clip_has_the_soundtrack_not_only_the_winner(
+    storage, governor, make_request
+):
+    """The runner-up is playable in the UI, so it cannot be the silent one.
+
+    Delivery reframes the winner only, deliberately — nine re-encodes for output
+    nobody asked for is not a saving worth making. Audio is the exception because
+    the video track is *copied*, so mixing a runner-up costs a stream copy rather
+    than a generation.
+    """
+    import adproviders as P
+    from adml import video as V
+
+    pipeline = Pipeline(
+        storage=storage,
+        governor=governor,
+        image_provider=P.MockImageProvider(storage),
+        video_provider=P.MockVideoProvider(storage),
+        llm_provider=P.MockLLMProvider(),
+    )
+    record = await pipeline.run(make_request())
+    videos = record.result.videos
+    assert len(videos) > 1, "this test needs a runner-up to be about anything"
+
+    for video in videos:
+        mixed = video.platform_renders.get("audio")
+        assert mixed is not None, f"clip {video.index} was delivered without audio"
+        assert V.probe(storage.get_bytes(mixed.key)).has_audio
+
+
+@needs_ffmpeg
+def test_delivery_called_without_a_bed_still_says_why_it_is_silent(storage, delivered):
+    """The direct entry point keeps its old contract, and explains itself.
+
+    `deliver()` is called by scripts and by tests as well as by the pipeline, and a
+    caller that passes no bed gets silence — the bed is chosen upstream now, so this
+    is the one path where `None` still reaches the mixer. What it must not do is
+    return a report indistinguishable from a successful mix.
+    """
+    report = deliver(delivered.result, delivered.request, storage, bed=None)
+
+    assert not report.audio.attached
+    assert "silent" in report.audio.note
 
 
 @needs_ffmpeg
@@ -459,3 +525,87 @@ def test_bundling_a_job_with_no_ranking_reports_rather_than_raising(storage, mak
     assert any("nothing was delivered" in w for w in report.warnings)
     # And a bundle is still buildable, so a failed job still hands something over.
     assert build_bundle(result, request, storage, report)
+
+
+# --- The music library -------------------------------------------------------
+#
+# A synthesised bed is the fallback, not the goal. When the user supplies real
+# music it has to win, and when they supply music with no recorded licence it has
+# to lose — silently skipping is the right answer there, because the alternative
+# is a rights claim against a submitted project.
+
+
+def _write_track(directory, stem: str, meta: dict | None) -> None:
+    """A tiny valid audio file plus its sidecar, or the file alone."""
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / f"{stem}.m4a").write_bytes(A.tone_bed(seconds=1.0).data)
+    if meta is not None:
+        (directory / f"{stem}.json").write_text(json.dumps(meta))
+
+
+@needs_ffmpeg
+def test_a_licensed_track_beats_the_synthesised_one(tmp_path):
+    _write_track(
+        tmp_path,
+        "bright-morning",
+        {
+            "title": "Bright Morning",
+            "source": "Pixabay",
+            "licence": "Pixabay Content Licence",
+            "url": "https://pixabay.test/bright-morning",
+            "moods": ["warm_lifestyle"],
+        },
+    )
+    library = A.load_library(tmp_path)
+    assert len(library) == 1
+
+    bed = A.choose_bed(library, "warm_lifestyle", 9.0)
+    assert bed.title == "Bright Morning"
+    assert not bed.generated
+    assert "Pixabay Content Licence" in bed.credit
+
+
+@needs_ffmpeg
+def test_a_track_without_a_recorded_licence_is_skipped_not_shipped(tmp_path):
+    """The failure this prevents is a file reaching a deliverable because a
+    directory scan was permissive and nobody was ever asked."""
+    _write_track(tmp_path, "found-in-downloads", None)
+    _write_track(tmp_path, "blank-licence", {"title": "Untitled", "source": "?", "licence": ""})
+
+    assert A.load_library(tmp_path) == []
+    # And the job still gets a soundtrack, from the one source that needs no licence.
+    assert A.choose_bed(A.load_library(tmp_path), "calm_premium", 9.0).generated
+
+
+@needs_ffmpeg
+def test_a_track_listing_no_moods_is_eligible_for_all_of_them(tmp_path):
+    """The common case is one track and a user who wants it used."""
+    _write_track(tmp_path, "anything", {"title": "Anything", "source": "own", "licence": "CC0"})
+    library = A.load_library(tmp_path)
+
+    for mood in ("calm_premium", "warm_lifestyle", "bold_confident", "high_energy"):
+        assert A.choose_bed(library, mood, 9.0).title == "Anything"
+
+
+@needs_ffmpeg
+def test_an_absent_library_directory_is_normal_rather_than_an_error(tmp_path):
+    assert A.load_library(tmp_path / "no-such-directory") == []
+
+
+@needs_ffmpeg
+def test_the_bed_is_scored_to_the_mood_and_is_reproducible():
+    """Four moods must not all produce the same music, and one mood must always
+    produce the same music — a soundtrack that varied between runs would make two
+    replays of one golden job disagree for a reason unrelated to the model."""
+    beds = {mood: A.generated_bed(mood, 6.0).data for mood in A._MOOD_SCORES}
+
+    assert len(set(beds.values())) == len(beds), "moods are not musically distinct"
+    for mood, data in beds.items():
+        assert A.generated_bed(mood, 6.0).data == data, f"{mood} is not deterministic"
+
+
+@needs_ffmpeg
+def test_an_unknown_mood_gets_a_bed_rather_than_an_exception():
+    """Adding a Mood to the enum must not make delivery start throwing."""
+    bed = A.generated_bed("mood_invented_next_semester", 4.0)
+    assert bed.generated and bed.data

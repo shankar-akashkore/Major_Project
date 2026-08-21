@@ -56,6 +56,18 @@ FAL_QUEUE_BASE = "https://queue.fal.run"
 SEEDREAM_EDIT_ENDPOINT = "fal-ai/bytedance/seedream/v4.5/edit"
 KLING_I2V_ENDPOINT = "fal-ai/kling-video/v2.5-turbo/pro/image-to-video"
 
+#: How closely Kling is asked to follow the prompt. fal documents the range as
+#: 0-1 and defaults it to 0.5; higher means stick closer to what was written.
+#:
+#: Raised from the default because the failure this project hit was precisely the
+#: prompt not being followed — a detailed action description came back as a slow
+#: zoom. Unlike everything else in the motion fix this is a judgement call rather
+#: than a correction of something demonstrably wrong, so it lives here as one
+#: named number: A/B it against 0.5 on a single clip when there is budget to
+#: spare, and push it no higher without looking at the result, since guidance
+#: turned all the way up trades motion for artefacts.
+KLING_CFG_SCALE = 0.7
+
 #: A single generation is slow — tens of seconds for an image, minutes for video.
 IMAGE_TIMEOUT_S = 180.0
 VIDEO_TIMEOUT_S = 900.0
@@ -64,6 +76,49 @@ POLL_INTERVAL_S = 3.0
 #: Per-HTTP-request timeout. Separate from the overall job timeout above: a slow
 #: generation is normal, a slow *response to a status check* is not.
 HTTP_TIMEOUT_S = 60.0
+#: How many times a submission is re-sent after fal asks it to wait.
+#:
+#: This exists because the pipeline submits its slots concurrently. A 429 is not a
+#: failure of the generation — nothing was generated, and nothing was charged — but
+#: the slot it lands on has already passed the budget check, so treating it as an
+#: error converts a rate limit into a candidate the user paid attention to and
+#: never received. Retrying a request that was *refused* cannot double-charge,
+#: which is what makes this safe to do automatically where a failed generation
+#: would not be.
+RATE_LIMIT_RETRIES = 4
+#: Backoff base, in seconds: 2, 4, 8, 16. Doubling rather than fixed because a
+#: rate limit that is still there after two seconds is unlikely to clear on the
+#: same schedule that hit it.
+RATE_LIMIT_BACKOFF_S = 2.0
+
+
+class _RateLimited(ProviderError):
+    """fal asked for the request to be sent again later.
+
+    Internal to this module: it never escapes ``FalClient.run``, which either
+    succeeds after waiting or re-raises it as an ordinary :class:`ProviderError`
+    once the retries are spent.
+    """
+
+    def __init__(self, message: str, *, retry_after: float | None = None):
+        super().__init__(message)
+        self.retry_after = retry_after
+
+
+def _retry_after_seconds(response: httpx.Response) -> float | None:
+    """The server's requested wait, when it sent one and it is a number.
+
+    Only the delta-seconds form is honoured. ``Retry-After`` also permits an HTTP
+    date, and parsing that correctly means trusting the client's clock against the
+    server's — a backoff we choose ourselves is better than a wait computed from
+    two disagreeing clocks.
+    """
+    raw = response.headers.get("retry-after", "").strip()
+    try:
+        seconds = float(raw)
+    except ValueError:
+        return None
+    return seconds if seconds >= 0 else None
 
 
 class FalClient:
@@ -108,6 +163,10 @@ class FalClient:
 
         Uses the queue endpoints rather than the synchronous one because video
         generation routinely outlives any sensible HTTP timeout.
+
+        The *submission* is retried on a 429; the polling is not, because a job
+        already in the queue is not a request the service is asking us to slow
+        down. See :data:`RATE_LIMIT_RETRIES`.
         """
         self._require_key(endpoint)
         deadline = time.monotonic() + timeout_s
@@ -115,7 +174,7 @@ class FalClient:
         async with httpx.AsyncClient(
             transport=self._transport, timeout=HTTP_TIMEOUT_S, headers=self._headers()
         ) as client:
-            submitted = await self._post(client, f"{FAL_QUEUE_BASE}/{endpoint}", payload)
+            submitted = await self._submit(client, endpoint, payload, deadline)
             request_id = submitted.get("request_id")
             if not request_id:
                 # Some deployments answer the submit call with the finished
@@ -148,6 +207,44 @@ class FalClient:
                     )
                 await asyncio.sleep(self.poll_interval_s)
 
+    async def _submit(
+        self,
+        client: httpx.AsyncClient,
+        endpoint: str,
+        payload: dict[str, Any],
+        deadline: float,
+    ) -> dict[str, Any]:
+        """POST the job, waiting out a rate limit rather than failing on one.
+
+        Bounded twice over: by the retry count, and by the caller's deadline. A
+        backoff that outlives the job timeout would turn a rate limit into a slot
+        that hangs for the full fifteen minutes a video is allowed and then fails
+        anyway, which is worse than failing at once.
+        """
+        url = f"{FAL_QUEUE_BASE}/{endpoint}"
+        for attempt in range(RATE_LIMIT_RETRIES + 1):
+            try:
+                return await self._post(client, url, payload)
+            except _RateLimited as limited:
+                if attempt == RATE_LIMIT_RETRIES:
+                    raise ProviderError(
+                        f"fal kept rate-limiting {endpoint} after "
+                        f"{RATE_LIMIT_RETRIES + 1} attempts. Lower "
+                        "AD_MAX_CONCURRENT_GENERATIONS and run the job again — "
+                        "nothing was generated, so nothing was charged."
+                    ) from limited
+                wait = limited.retry_after
+                if wait is None:
+                    wait = RATE_LIMIT_BACKOFF_S * (2**attempt)
+                if time.monotonic() + wait >= deadline:
+                    raise ProviderError(
+                        f"fal rate-limited {endpoint} and the backoff would outlast "
+                        "the job timeout, so the slot is failing now rather than "
+                        "holding the pipeline open to fail later."
+                    ) from limited
+                await asyncio.sleep(wait)
+        raise AssertionError("unreachable: the retry loop returns or raises")
+
     async def _post(
         self, client: httpx.AsyncClient, url: str, payload: dict[str, Any]
     ) -> dict[str, Any]:
@@ -173,6 +270,14 @@ class FalClient:
             raise ProviderUnavailable(f"fal rejected the API key ({response.status_code}) at {url}")
         if response.status_code == 402:
             raise ProviderUnavailable(f"fal reports insufficient credit (402) at {url}")
+        if response.status_code == 429:
+            # Separated from the generic error below so `run` can wait rather than
+            # fail. Carries the server's own Retry-After when it sent one; guessing
+            # a backoff when the service has stated one is just being wrong politely.
+            raise _RateLimited(
+                f"fal rate-limited the request at {url}",
+                retry_after=_retry_after_seconds(response),
+            )
         if response.status_code >= 400:
             raise ProviderError(f"fal returned {response.status_code} at {url}: {response.text}")
         try:
@@ -352,8 +457,16 @@ class FalVideoProvider(VideoProvider):
             "image_url": as_data_uri(self.storage, request.start_image),
             # The API takes duration as a *string* enum, not a number.
             "duration": str(int(duration)),
-            "negative_prompt": request.brief.negative_prompt or "blur, distort, and low quality",
-            "cfg_scale": 0.5,
+            # The video negatives, not the image ones. This used to send
+            # `brief.negative_prompt` — a list of image artefacts that never
+            # mentions motion — so nothing in the payload ever discouraged the
+            # model from simply panning across the still it was given.
+            "negative_prompt": (
+                request.brief.video_negative_prompt
+                or request.brief.negative_prompt
+                or "blur, distort, and low quality"
+            ),
+            "cfg_scale": KLING_CFG_SCALE,
         }
 
     async def generate(self, request: VideoGenRequest) -> VideoGenResult:

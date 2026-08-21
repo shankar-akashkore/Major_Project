@@ -66,26 +66,37 @@ _MOOD_LIGHTING: dict[Mood, list[Lighting]] = {
     Mood.HIGH_ENERGY: [Lighting.HARD_DIRECTIONAL, Lighting.GOLDEN_HOUR, Lighting.RIM_BACKLIT],
 }
 
+#: Motion preferences per mood.
+#:
+#: These pools used to be the quiet half of the zoom problem.  The sampler draws
+#: the preferred levels *first*, and three of the four moods preferred three
+#: camera moves — the default, ``warm_lifestyle``, preferred
+#: ``[slow_dolly_in, product_present, static_subtle]``.  With three candidates
+#: that is not a preference at all, it is a guarantee: two of every three clips
+#: were camera-only and one was explicitly asked to hold still.
+#:
+#: Every pool now holds three performances.  Mood varies *which* performance and
+#: how the camera supports it, which is what mood should have been varying.
 _MOOD_MOTION: dict[Mood, list[MotionIntent]] = {
     Mood.CALM_PREMIUM: [
-        MotionIntent.STATIC_SUBTLE,
-        MotionIntent.SLOW_DOLLY_IN,
-        MotionIntent.SLOW_DOLLY_OUT,
+        MotionIntent.PRODUCT_REVEAL,
+        MotionIntent.HERO_TURN,
+        MotionIntent.OFFER_TO_CAMERA,
     ],
     Mood.WARM_LIFESTYLE: [
-        MotionIntent.SLOW_DOLLY_IN,
-        MotionIntent.PRODUCT_PRESENT,
-        MotionIntent.STATIC_SUBTLE,
+        MotionIntent.IN_USE,
+        MotionIntent.PICK_UP,
+        MotionIntent.HERO_TURN,
     ],
     Mood.BOLD_CONFIDENT: [
-        MotionIntent.ORBIT_LEFT,
-        MotionIntent.PRODUCT_PRESENT,
-        MotionIntent.SLOW_DOLLY_IN,
+        MotionIntent.OFFER_TO_CAMERA,
+        MotionIntent.HERO_TURN,
+        MotionIntent.WALK_IN,
     ],
     Mood.HIGH_ENERGY: [
-        MotionIntent.HANDHELD_DRIFT,
-        MotionIntent.ORBIT_LEFT,
-        MotionIntent.PRODUCT_PRESENT,
+        MotionIntent.WALK_IN,
+        MotionIntent.IN_USE,
+        MotionIntent.PRODUCT_REVEAL,
     ],
 }
 
@@ -194,12 +205,48 @@ def sample_design_points(
     ]
 
 
+def max_achievable_distance(
+    n: int,
+    *,
+    platform: Platform = Platform.INSTAGRAM_REELS,
+    locked_angle: CameraAngle | None = None,
+) -> int:
+    """The best minimum pairwise distance the design space can offer for ``n``.
+
+    Not a constant. An axis can only keep ``n`` candidates apart if it has ``n``
+    distinct levels to give them; below that ``_draw_levels`` cycles, some pair
+    collides on that axis, and the achievable minimum drops by one.
+
+    This exists because the guarantee stopped being 4. Moving to five candidates
+    put the composition axis under pressure on Reels, where ``negative_space_top``
+    is excluded for placing the subject under the platform's bottom chrome — four
+    viable levels for five candidates, so two candidates must share one and the
+    best possible minimum is 3. On Feed, where all five compositions are viable,
+    five candidates still separate completely.
+
+    Asserting a computed bound rather than a remembered number is the point: the
+    diversity guarantee is now a claim about the axes, and it stays true when a
+    level is added, retired, or filtered out by a platform.
+    """
+    if n < 2:
+        return 4
+    cardinalities = (
+        1 if locked_angle is not None else len(list(CameraAngle)),
+        len(list(Lighting)),
+        len(compositions_for(platform)),
+        len(list(MotionIntent)),
+    )
+    return sum(1 for c in cardinalities if c >= n)
+
+
 def min_pairwise_distance(points: list[DesignPoint]) -> int:
     """Smallest Hamming distance between any two points.
 
-    4 means every candidate differs on every axis — the best achievable.  3 is
-    the expected value when the user locks the camera angle.  0 would mean two
-    identical candidates, which is a bug worth failing a test over.
+    4 means every candidate differs on every axis.  It is no longer *always* the
+    best achievable: locking the camera angle costs one, and so does asking for
+    more candidates than an axis has levels — see :func:`max_achievable_distance`,
+    which is what this should be compared against.  0 would mean two identical
+    candidates, which is a bug worth failing a test over.
     """
     if len(points) < 2:
         return 4

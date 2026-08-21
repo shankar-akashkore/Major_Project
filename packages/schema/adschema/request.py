@@ -29,8 +29,10 @@ from .enums import (
     CameraAngle,
     Mood,
     Platform,
+    ProductScale,
     Tier,
     Vertical,
+    default_scale_for,
 )
 
 HEX_COLOR = re.compile(r"^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$")
@@ -42,8 +44,20 @@ HEX_COLOR = re.compile(r"^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$")
 MIN_DURATION_S = 8.0
 MAX_DURATION_S = 10.0
 
-#: Candidates generated per job.  Three images, each animated into one video.
-DEFAULT_CANDIDATE_COUNT = 3
+#: Image candidates generated per job, and how many of them are animated.
+#:
+#: These were equal, and the pipeline was a 1:1 cascade — every image became a
+#: video, so the image-stage ranking was a *prediction* that cost nothing to be
+#: wrong about. They are separate now because the shape of the product changed:
+#: explore widely where generation is cheap, spend narrowly where it is not.
+#:
+#: The asymmetry is the whole point. An image is $0.04 and a 10 s clip is $0.70 —
+#: seventeen and a half times the price — so five images and two videos costs
+#: $1.60 against the old $2.22 while showing the user *more* creative range, not
+#: less. What it buys is paid for by the image-stage predictor, which stops being
+#: a diagnostic and becomes the thing that decides where the money goes.
+DEFAULT_CANDIDATE_COUNT = 5
+DEFAULT_VIDEO_COUNT = 2
 
 
 class AssetRef(BaseModel):
@@ -130,7 +144,12 @@ class ConsentAttestation(BaseModel):
 
 
 class AdJobRequest(BaseModel):
-    """Everything needed to run one 3-candidate ad job."""
+    """Everything needed to run one ad job.
+
+    Deliberately not "a 3-candidate ad job" any more. The candidate count and
+    the video count are separate request fields because they are separate
+    decisions — how widely to explore, and how much of that to pay to animate.
+    """
 
     job_id: str = Field(default_factory=lambda: uuid.uuid4().hex[:16])
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
@@ -153,6 +172,13 @@ class AdJobRequest(BaseModel):
 
     # --- Targeting ---
     vertical: Vertical = Vertical.OTHER
+    product_scale: ProductScale | None = Field(
+        default=None,
+        description="How big the product is in real life. Left unset it is derived "
+        "from the vertical; set it explicitly when the vertical is 'other' or when "
+        "the product is unusual for its category. This is the single control that "
+        "stops the generator rendering a phone the size of a person.",
+    )
     platform: Platform = Platform.INSTAGRAM_REELS
     audience: AudienceSpec = Field(default_factory=AudienceSpec)
 
@@ -172,7 +198,20 @@ class AdJobRequest(BaseModel):
     )
 
     # --- Candidate control ---
-    candidate_count: int = Field(default=DEFAULT_CANDIDATE_COUNT, ge=1, le=6)
+    candidate_count: int = Field(
+        default=DEFAULT_CANDIDATE_COUNT,
+        ge=1,
+        le=6,
+        description="Image candidates to generate. Cheap, so this is the exploration budget.",
+    )
+    video_count: int = Field(
+        default=DEFAULT_VIDEO_COUNT,
+        ge=1,
+        le=6,
+        description="How many of the candidates are animated, taken in image-stage "
+        "predicted order. Set equal to candidate_count to animate everything, which "
+        "is what an evaluation run needs — see AdJobRequest.animates_everything.",
+    )
     locked_angle: CameraAngle | None = Field(
         default=None,
         description="Pin the camera angle across all candidates. Left None, the "
@@ -189,10 +228,55 @@ class AdJobRequest(BaseModel):
     consent: ConsentAttestation
     tier: Tier = Tier.MOCK
 
+    @model_validator(mode="after")
+    def _cannot_animate_more_than_was_generated(self) -> AdJobRequest:
+        """``video_count`` is clamped, not rejected.
+
+        Asking for more videos than there are candidates is incoherent rather than
+        malicious — a leftover form value, a script that changed one number and not
+        the other. Refusing the job would cost the user their uploads and tell them
+        nothing they could not be told by quietly animating everything, which is
+        exactly what the request describes at the limit.
+
+        The gate below it is the one that matters and it is enforced elsewhere: a
+        candidate that fails quality control is never promoted no matter how many
+        videos were asked for.
+        """
+        if self.video_count > self.candidate_count:
+            self.video_count = self.candidate_count
+        return self
+
+    @property
+    def animates_everything(self) -> bool:
+        """True when no candidate is cut, so the two stages rank the same set.
+
+        The distinction is load-bearing for the research claim rather than for the
+        product. A job that animates everything yields a *complete* paired
+        observation — every image-stage rank has a video-stage rank to be compared
+        against. A 5-to-2 job yields a truncated one, because the three candidates
+        the predictor rejected have no video-stage outcome and never will.
+
+        Both are legitimate; they answer different questions. Evaluation runs want
+        this True. See docs/prediction-protocol.md.
+        """
+        return self.video_count >= self.candidate_count
+
     @property
     def aspect_ratio(self) -> AspectRatio:
         """Resolved geometry: the override if given, else the platform default."""
         return self.aspect_ratio_override or self.platform.aspect_ratio
+
+    @property
+    def effective_scale(self) -> ProductScale | None:
+        """Resolved product size: the explicit value if given, else the vertical's.
+
+        Still ``None`` for an unlabelled product in the ``other`` vertical, and
+        deliberately so — that case is genuinely unknown, and the brief compiler
+        answers it by constraining the *relationship* rather than inventing a
+        measurement. Guessing "one hand" for a sofa would trade one silent scale
+        error for another.
+        """
+        return self.product_scale or default_scale_for(self.vertical)
 
     def candidate_seed(self, index: int) -> int:
         return self.seed + index

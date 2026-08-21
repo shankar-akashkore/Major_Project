@@ -74,6 +74,12 @@ class AudioReport(BaseModel):
         description="True when the bed is a synthesised tone rather than music. Keeps "
         "a development placeholder from being described as a soundtrack.",
     )
+    generated: bool = Field(
+        default=False,
+        description="True when the soundtrack was synthesised for this ad rather than "
+        "licensed from someone. Not a placeholder — it is what ships — but a reader "
+        "of the manifest should not have to assume which of the two it is.",
+    )
     note: str = ""
 
 

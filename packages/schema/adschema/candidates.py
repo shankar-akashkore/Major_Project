@@ -146,6 +146,12 @@ class ImageCandidate(BaseModel):
     score: ScoreBreakdown | None = Field(
         default=None, description="Image-stage prediction. Only set once the gate passes."
     )
+    promoted: bool = Field(
+        default=False,
+        description="Whether this candidate was animated. False means the image-stage "
+        "predictor ranked it below the cut and no video exists for it — which is a "
+        "decision the system made, not a failure, and the UI has to say so.",
+    )
 
     @property
     def passed_gate(self) -> bool:

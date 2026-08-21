@@ -433,7 +433,7 @@ Cut detection moved onto motion energy, where the separation is enormous:
 | navy→orange concatenation seam | **0.6201** |
 
 67x. Detection needs *both* an absolute floor (0.15) and a robust z-score, and each
-covers the other's blind spot: a `static_subtle` mock clip put its largest transition
+covers the other's blind spot: a low-motion mock clip put its largest transition
 30 robust deviations above its own median at an absolute difference of 0.0021 — that
 is film grain, and the relative test alone calls it a cut. Conversely a uniformly
 flickering clip exceeds any absolute floor everywhere, and then no transition is a

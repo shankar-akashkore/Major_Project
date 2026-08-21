@@ -26,9 +26,12 @@ present, and it is labelled as a test signal rather than as music.
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
+from collections.abc import Sequence
 from dataclasses import dataclass
+from pathlib import Path
 
 from .video import (
     SUBPROCESS_TIMEOUT_S,
@@ -84,6 +87,13 @@ class AudioBed:
     #: True for a synthesised test signal. Keeps a tone from being described as
     #: music in a delivery manifest.
     is_test_signal: bool = False
+    #: True when this project synthesised the audio rather than licensing it.
+    #:
+    #: Distinct from ``is_test_signal``: a generated bed *is* the soundtrack, and
+    #: describing it as a test tone would understate what ships. What it is not is
+    #: licensed music, and a manifest that leaves a reader to assume otherwise is
+    #: the same provenance failure as an unrecorded licence, pointing the other way.
+    generated: bool = False
 
     def __post_init__(self) -> None:
         missing = [
@@ -104,6 +114,8 @@ class AudioBed:
         """The attribution line, for the delivery manifest and the report card."""
         if self.is_test_signal:
             return f"{self.title} (synthesised test signal, not music)"
+        if self.generated:
+            return f"{self.title} (synthesised for this ad — no third-party rights)"
         text = f"{self.title} — {self.source} ({self.licence})"
         return f"{text} {self.url}".strip() if self.url else text
 
@@ -115,6 +127,7 @@ class AudioBed:
             "url": self.url,
             "attribution_required": self.attribution_required,
             "is_test_signal": self.is_test_signal,
+            "generated": self.generated,
             "credit": self.credit,
         }
 
@@ -171,6 +184,323 @@ def tone_bed(seconds: float = 10.0, *, hz: float = 220.0) -> AudioBed:
         licence="not applicable — generated signal",
         is_test_signal=True,
     )
+
+
+# --- A bed when there is no music file -------------------------------------
+#
+# The delivered clips were silent, and the reason was not a bug: nothing ever
+# supplied a bed, because this project ships no music and `AudioBed` refuses
+# audio without a recorded licence. Both of those are correct and neither is an
+# answer to "why does my advertisement have no sound".
+#
+# So the bed is synthesised. Not a sine — `tone_bed` already exists for testing
+# the mixing path and nobody would ship it — but an actual chord progression,
+# scored to the mood the user picked. It is modest music. What it is is free,
+# unencumbered, deterministic, and *there*, which beats silence and beats a
+# rights claim. A real licensed track still wins: drop one in the library
+# (`load_library`) and it takes precedence.
+
+#: MIDI note 69 is A4 = 440 Hz, which is the only tuning fact needed here.
+_A4_MIDI = 69
+_A4_HZ = 440.0
+
+#: Triad shapes as semitone offsets from the root.
+_MAJOR = (0, 4, 7)
+_MINOR = (0, 3, 7)
+_SUS4 = (0, 5, 7)
+
+
+def _hz(midi: int) -> float:
+    return _A4_HZ * (2.0 ** ((midi - _A4_MIDI) / 12.0))
+
+
+@dataclass(frozen=True)
+class _Score:
+    """How one mood sounds.
+
+    The parameters are the ones that actually separate an ad bed from a drone:
+    which chords, how often they change, how bright the result is, and how much
+    low end sits under it.
+    """
+
+    #: (root MIDI note, triad shape) per bar. Length sets the harmonic rhythm —
+    #: eight short bars reads as urgency, four long ones as composure.
+    progression: tuple[tuple[int, tuple[int, ...]], ...]
+    #: Top of the spectrum, in Hz. A bed is meant to sit under a voice and a
+    #: product; anything with air at 12 kHz competes with the ad instead.
+    lowpass_hz: int
+    pad_gain: float
+    bass_gain: float
+    #: Attack and release as a fraction of one bar. Long swells for calm, short
+    #: ones for energy — this is most of what makes a progression feel fast.
+    swell: float
+
+
+#: A3 is MIDI 57. Roots are written as MIDI numbers so a mood can be transposed
+#: by changing one number rather than four frequencies.
+_MOOD_SCORES: dict[str, _Score] = {
+    "calm_premium": _Score(
+        # Am - F - G - Em: no leading tone resolution, so it never arrives and
+        # never demands attention. Which is what a premium bed is for.
+        progression=((57, _MINOR), (53, _MAJOR), (55, _MAJOR), (52, _MINOR)),
+        lowpass_hz=5000,
+        pad_gain=0.20,
+        bass_gain=0.24,
+        swell=0.34,
+    ),
+    "warm_lifestyle": _Score(
+        # C - F - Am - G: the most familiar progression in popular music, which
+        # is the point. Warmth here means recognisable, not novel.
+        progression=((48, _MAJOR), (53, _MAJOR), (57, _MINOR), (55, _MAJOR)),
+        lowpass_hz=6500,
+        pad_gain=0.22,
+        bass_gain=0.26,
+        swell=0.28,
+    ),
+    "bold_confident": _Score(
+        # Dm - Bb - F - C, rooted low and open. Suspensions rather than triads on
+        # the outer chords: a sus4 is unresolved without being sad.
+        progression=((50, _MINOR), (46, _SUS4), (53, _MAJOR), (48, _SUS4)),
+        lowpass_hz=8000,
+        pad_gain=0.24,
+        bass_gain=0.32,
+        swell=0.18,
+    ),
+    "high_energy": _Score(
+        # Eight bars instead of four, so the chords change twice as often over the
+        # same clip. Nothing else about the sound says "fast" as clearly.
+        progression=(
+            (57, _MINOR),
+            (53, _MAJOR),
+            (48, _MAJOR),
+            (55, _MAJOR),
+            (57, _MINOR),
+            (53, _MAJOR),
+            (55, _MAJOR),
+            (55, _SUS4),
+        ),
+        lowpass_hz=9000,
+        pad_gain=0.24,
+        bass_gain=0.30,
+        swell=0.12,
+    ),
+}
+
+#: Used when a mood has no score of its own. Warm rather than calm: an unmapped
+#: mood is more likely to be an ordinary product ad than a luxury one.
+_DEFAULT_SCORE = _MOOD_SCORES["warm_lifestyle"]
+
+
+def generated_bed(mood: str = "warm_lifestyle", seconds: float = 10.0) -> AudioBed:
+    """Synthesise a chord-progression bed for ``mood``.
+
+    Built from one oscillator per note rather than from a frequency that steps
+    through the progression: stepping a running oscillator's frequency is a phase
+    discontinuity, which is a click, and a click every two and a half seconds is
+    more noticeable than no music at all. Each note gets its own source, its own
+    attack and release, and a place in the timeline.
+
+    Deterministic — the same mood and duration produce identical bytes — so a
+    golden replay is not disturbed by the soundtrack.
+    """
+    if seconds <= 0:
+        raise AudioError("a bed needs a positive duration")
+
+    score = _MOOD_SCORES.get(str(mood), _DEFAULT_SCORE)
+    bars = len(score.progression)
+    bar = seconds / bars
+    fade = max(0.05, min(score.swell * bar, bar / 2 - 0.01))
+
+    ffmpeg = _require_ffmpeg("audio")
+    inputs: list[str] = []
+    chains: list[str] = []
+    labels: list[str] = []
+    n = 0
+
+    for index, (root, shape) in enumerate(score.progression):
+        start_ms = int(index * bar * 1000)
+        # The bass an octave below the root, then the triad above it. Voices are
+        # attenuated as they climb so the chord reads as one sound rather than as
+        # three tones of equal weight.
+        voices = [(_hz(root - 12), score.bass_gain)]
+        voices += [
+            (_hz(root + semitones), score.pad_gain / (voice + 1))
+            for voice, semitones in enumerate(shape)
+        ]
+        for frequency, gain in voices:
+            inputs += ["-f", "lavfi", "-i", f"sine=frequency={frequency:.3f}:duration={bar:.4f}"]
+            chains.append(
+                f"[{n}:a]afade=t=in:st=0:d={fade:.4f},"
+                f"afade=t=out:st={bar - fade:.4f}:d={fade:.4f},"
+                f"volume={gain:.4f},adelay={start_ms}|{start_ms}[v{n}]"
+            )
+            labels.append(f"[v{n}]")
+            n += 1
+
+    chains.append(
+        "".join(labels) + f"amix=inputs={len(labels)}:normalize=0,"
+        # Rolled off at both ends: below 60 Hz is rumble a phone speaker cannot
+        # reproduce but a loudness meter still counts, and the top is where the
+        # bed would otherwise compete with whatever the ad is actually saying.
+        f"highpass=f=60,lowpass=f={score.lowpass_hz},"
+        "aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo[out]"
+    )
+
+    path = _write_temp(b"", "m4a")
+    try:
+        proc = subprocess.run(
+            [
+                ffmpeg,
+                "-v",
+                "error",
+                "-y",
+                *inputs,
+                "-filter_complex",
+                ";".join(chains),
+                "-map",
+                "[out]",
+                "-t",
+                f"{seconds:.4f}",
+                "-c:a",
+                "aac",
+                "-b:a",
+                "128k",
+                "-map_metadata",
+                "-1",
+                "-fflags",
+                "+bitexact",
+                "-f",
+                "mp4",
+                path,
+            ],
+            capture_output=True,
+            timeout=SUBPROCESS_TIMEOUT_S,
+        )
+        if proc.returncode != 0:
+            raise AudioError(
+                f"could not synthesise a {mood} bed: "
+                f"{proc.stderr.decode('utf-8', 'replace').strip()}"
+            )
+        with open(path, "rb") as fh:
+            data = fh.read()
+    finally:
+        os.unlink(path)
+
+    return AudioBed(
+        data=data,
+        title=f"{str(mood).replace('_', ' ')} bed",
+        source="synthesised by adml.audio.generated_bed",
+        licence="generated by this project — no third-party rights",
+        generated=True,
+    )
+
+
+# --- A library of real, licensed music -------------------------------------
+
+
+#: Audio containers the mixer will accept from a library directory.
+LIBRARY_SUFFIXES = (".m4a", ".mp3", ".wav", ".aac", ".ogg", ".flac")
+
+
+@dataclass(frozen=True)
+class LicensedTrack:
+    """A bed from the library, with the moods it suits.
+
+    ``moods`` is advisory. A track that lists none is eligible for every mood
+    rather than for none — the common case is a user who dropped in one piece of
+    music and wants it used, and refusing it because they did not fill in a field
+    would be the tool being clever at their expense.
+    """
+
+    bed: AudioBed
+    moods: frozenset[str] = frozenset()
+
+    def suits(self, mood: str) -> bool:
+        return not self.moods or str(mood) in self.moods
+
+
+def load_library(directory: str | os.PathLike[str]) -> list[LicensedTrack]:
+    """Read every track in ``directory`` that has its licence recorded beside it.
+
+    Each audio file needs a JSON sidecar of the same stem::
+
+        bright-morning.m4a
+        bright-morning.json   {"title": ..., "source": ..., "licence": ...,
+                               "url": ..., "moods": ["warm_lifestyle"]}
+
+    A file **without** a sidecar is skipped, not loaded with blanks filled in.
+    This is the same rule :class:`AudioBed` enforces at construction, applied one
+    step earlier: the failure mode being prevented is a track that got into a
+    published deliverable because a directory scan was permissive, and the person
+    who could have caught it never saw a prompt.
+
+    Returns an empty list for a directory that does not exist, which is the normal
+    state and not an error — the caller falls back to a synthesised bed.
+    """
+    root = Path(directory)
+    if not root.is_dir():
+        return []
+
+    tracks: list[LicensedTrack] = []
+    for path in sorted(root.iterdir()):
+        if path.suffix.lower() not in LIBRARY_SUFFIXES:
+            continue
+        sidecar = path.with_suffix(".json")
+        if not sidecar.is_file():
+            continue
+        try:
+            meta = json.loads(sidecar.read_text())
+        except (OSError, ValueError):
+            continue
+        if not isinstance(meta, dict):
+            continue
+        try:
+            bed = AudioBed(
+                data=path.read_bytes(),
+                title=str(meta.get("title", "")),
+                source=str(meta.get("source", "")),
+                licence=str(meta.get("licence", "")),
+                url=str(meta.get("url", "")),
+                attribution_required=bool(meta.get("attribution_required", False)),
+            )
+        except (AudioError, OSError):
+            # Includes LicenceMissing: a sidecar that exists but leaves the licence
+            # blank is the same problem as no sidecar, and skipping is the same
+            # answer.
+            continue
+        moods = meta.get("moods") or []
+        tracks.append(
+            LicensedTrack(
+                bed=bed,
+                moods=frozenset(str(m) for m in moods) if isinstance(moods, list) else frozenset(),
+            )
+        )
+    return tracks
+
+
+def choose_bed(
+    library: Sequence[LicensedTrack],
+    mood: str,
+    seconds: float = 10.0,
+) -> AudioBed:
+    """The bed for a job: licensed music if there is any, synthesis otherwise.
+
+    Preference order is licensed-and-suited, then licensed-at-all, then generated.
+    Real music always beats synthesis — the generated bed exists so that a clip is
+    never silent, not because it is better than a track someone chose.
+
+    Never returns ``None``. A delivered advertisement has a soundtrack; the
+    question this answers is only which one.
+    """
+    suited = [track for track in library if track.suits(mood)]
+    if suited:
+        # Chosen by mood, then by name, so the same job picks the same track every
+        # run. A rotating soundtrack would make two runs of one golden job
+        # disagree for a reason that has nothing to do with the model.
+        return min(suited, key=lambda t: t.bed.title).bed
+    if library:
+        return min(library, key=lambda t: t.bed.title).bed
+    return generated_bed(mood, seconds)
 
 
 @dataclass(frozen=True)

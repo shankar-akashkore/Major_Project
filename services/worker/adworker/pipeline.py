@@ -17,12 +17,13 @@ moving it behind ARQ later is a matter of calling ``run_job`` from a task.
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
+import asyncio
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from adml import video as V
-from adml.audio import AudioBed
+from adml.audio import AudioBed, LicensedTrack, choose_bed
 from adml.serving import ServedModel
 from adproviders import (
     BudgetExceeded,
@@ -40,11 +41,13 @@ from adschema import (
     MAX_DURATION_S,
     MIN_DURATION_S,
     AdJobRequest,
+    AssetRef,
     GateVerdict,
     ImageCandidate,
     JobRecord,
     JobResult,
     JobState,
+    PromptStyle,
     Stage,
     StageEvent,
     VideoCandidate,
@@ -58,6 +61,23 @@ from .scoring import load_ranker, rank_videos, score_image_set, score_video
 
 #: Called with each progress event.  The API turns this into an SSE stream.
 ProgressHook = Callable[[StageEvent], Awaitable[None]] | None
+
+
+def _product_reference(request: AdJobRequest, result: JobResult) -> AssetRef:
+    """The product image the generator is actually handed.
+
+    The cutout when intake produced a trustworthy one, the original otherwise. A
+    product on transparency holds its identity through multi-reference composition
+    markedly better than one still attached to its backdrop.
+
+    One accessor rather than two call sites, because the quality gate measures the
+    product's extent against this same reference — if generation and measurement
+    resolved it separately they could drift apart, and the gate would be sizing the
+    frame against a product the generator never saw.
+    """
+    if result.intake is not None:
+        return result.intake.product_reference(request.product_image)
+    return request.product_image
 
 
 class ConsentRefused(RuntimeError):
@@ -94,6 +114,7 @@ class Pipeline:
         on_progress: ProgressHook = None,
         ranker: ServedModel | None = None,
         audio_bed: AudioBed | None = None,
+        audio_library: Sequence[LicensedTrack] | None = None,
     ):
         self.storage = storage
         self.governor = governor
@@ -101,15 +122,42 @@ class Pipeline:
         self.videos = video_provider
         self.llm = llm_provider
         self.on_progress = on_progress
-        # No bed is the normal state. This project ships no audio content, because
-        # bundling music with unrecorded provenance into a deliverable is the one
-        # delivery mistake that cannot be corrected after publication.
+        # `audio_bed` pins one bed for every job the pipeline runs, which is what a
+        # test or an ablation wants. Left unset, the bed is chosen per job from
+        # `audio_library` — and if that is empty, synthesised to match the mood.
+        #
+        # It used to default to no audio at all, and that was a real decision rather
+        # than an oversight: this project ships no music, and `AudioBed` refuses
+        # audio without a recorded licence, because bundling music of unknown
+        # provenance into a deliverable is the one delivery mistake that cannot be
+        # corrected after publication. Both of those still hold. What was wrong was
+        # the conclusion — an advertisement with no sound is not a deliverable, and
+        # "we own no music" is answerable by writing some.
         self.audio_bed = audio_bed
+        self.audio_library = list(audio_library or [])
         # Loaded once per pipeline rather than per job: reading a few kilobytes of
         # npz is cheap, but doing it inside every job would make a mid-run retrain
         # change the model between two jobs of the same batch, and the evaluation
         # could not say which model produced which ranking.
         self.ranker = ranker if ranker is not None else load_ranker()
+        #: Bounds how many generations are in flight across a stage.
+        #:
+        #: Held on the pipeline rather than made per-stage because images and videos
+        #: hit the same account and the same rate limiter, and the limit that matters
+        #: is the one on the provider's side.
+        self._slots = asyncio.Semaphore(self.governor.settings.max_concurrent_generations)
+
+    async def _bounded(self, coro):
+        """Await ``coro`` holding a generation slot.
+
+        The semaphore is what keeps a five-candidate fan-out from arriving at the
+        provider as five simultaneous submissions. It is not a performance tuning
+        knob so much as a politeness one: a 429 fails a slot that has already
+        cleared the budget check, so an unbounded speed-up buys latency with lost
+        generations.
+        """
+        async with self._slots:
+            return await coro
 
     # --- Progress -----------------------------------------------------------
 
@@ -202,7 +250,9 @@ class Pipeline:
 
     async def _briefs(self, record: JobRecord, result: JobResult) -> None:
         await self._emit(record, Stage.BRIEF, "started", "sampling the design space")
-        brief_set = await compile_briefs(record.request, self.llm)
+        brief_set = await compile_briefs(
+            record.request, self.llm, PromptStyle(self.governor.settings.prompt_style)
+        )
         result.briefs = brief_set
         await self._emit(
             record,
@@ -213,6 +263,70 @@ class Pipeline:
         )
 
     # --- Stage 3 + 4: images with the gate in the retry loop ----------------
+
+    async def _image_slot(
+        self,
+        record: JobRecord,
+        result: JobResult,
+        brief,
+        total: int,
+    ) -> ImageCandidate | None:
+        """One candidate slot: generate, gate, and retry once if the gate says to.
+
+        Returns ``None`` only when the retry allowance was spent before a single
+        generation happened, which cannot occur on a first attempt. A candidate that
+        *failed* is returned rather than dropped, so the UI can show what went wrong.
+
+        Lifted out of the stage loop when the slots became concurrent. The retry
+        allowance is per-slot and keyed by slot, so nothing here is shared with a
+        sibling slot except the governor, which does its own locking.
+        """
+        request = record.request
+        slot_key = f"{request.job_id}:slot{brief.index}"
+        prompt_override: str | None = None
+        candidate: ImageCandidate | None = None
+
+        while True:
+            try:
+                attempt = self.governor.register_attempt(slot_key)
+            except RetryBudgetExceeded:
+                # Allowance spent: keep the last attempt as a rejected candidate
+                # so the UI can show what happened rather than silently dropping it.
+                break
+
+            candidate = await self._generate_one_image(
+                record, result, brief, attempt, prompt_override
+            )
+            # The gate is numpy over a full-resolution frame — around 0.4 s measured,
+            # small against a 50 s generation but synchronous, and on a shared event
+            # loop a synchronous 0.4 s is 0.4 s that four other slots spend not
+            # polling their queue. Off the loop it costs nothing that matters.
+            gate = await asyncio.to_thread(
+                evaluate_image,
+                candidate,
+                request,
+                self.storage,
+                attempt,
+                _product_reference(request, result),
+            )
+            candidate.gate = gate
+
+            if gate.verdict is GateVerdict.PASS:
+                break
+            if gate.verdict is GateVerdict.REJECT:
+                break
+
+            # RETRY: say something new about what failed, or stop.
+            prompt_override = stricter_prompt(brief.image_prompt, gate)
+            await self._emit(
+                record,
+                Stage.QUALITY_GATE,
+                "progress",
+                f"candidate {brief.index} failed {gate.reason}; retrying once",
+                (brief.index + 0.5) / max(1, total),
+            )
+
+        return candidate
 
     async def _generate_one_image(
         self,
@@ -233,14 +347,7 @@ class Pipeline:
             else brief.model_copy(update={"image_prompt": prompt_override})
         )
 
-        # The cutout when intake produced a trustworthy one, the original otherwise.
-        # A product on transparency holds its identity through multi-reference
-        # composition markedly better than one still attached to its backdrop.
-        product = (
-            result.intake.product_reference(request.product_image)
-            if result.intake is not None
-            else request.product_image
-        )
+        product = _product_reference(request, result)
         references = [request.human_model_image, product]
         if request.logo_image is not None:
             references.append(request.logo_image)
@@ -308,57 +415,62 @@ class Pipeline:
         )
 
     async def _images_and_gate(self, record: JobRecord, result: JobResult) -> None:
-        request = record.request
+        """Generate every candidate slot, gate each one, keep them in slot order.
+
+        The slots run **concurrently**. They were sequential, and the first live job
+        priced that decision exactly: three Seedream edits of 54.1 s, 46.9 s and
+        49.9 s took 152 s of wall clock, because each one waited for the previous to
+        come back before it was even submitted. fal is a queue — the time is spent
+        waiting, not computing, and waiting is the one thing that parallelises for
+        free. At the current five candidates the sequential version costs four
+        minutes of a progress bar and buys nothing.
+
+        Two things this must not break, and neither is negotiable:
+
+        * **Order.** ``result.images`` is indexed by slot everywhere downstream —
+          the ranker, the golden replay, the letters the UI prints. ``gather``
+          returns results in the order the coroutines were passed, not the order
+          they finished, so the list is rebuilt from that rather than appended to as
+          candidates land.
+        * **Money.** Concurrent slots reach the governor at the same moment. That is
+          handled there, under a lock, rather than here — see
+          ``CostGovernor._reserve_lock``.
+        """
         briefs = result.briefs.briefs if result.briefs else []
         total = len(briefs)
 
-        await self._emit(record, Stage.IMAGE_GEN, "started", f"generating {total} candidates")
+        limit = min(self.governor.settings.max_concurrent_generations, max(1, total))
+        await self._emit(
+            record,
+            Stage.IMAGE_GEN,
+            "started",
+            f"generating {total} candidates, {limit} at a time",
+        )
 
-        for brief in briefs:
-            slot_key = f"{request.job_id}:slot{brief.index}"
-            prompt_override: str | None = None
-            candidate: ImageCandidate | None = None
+        done = 0
 
-            while True:
-                try:
-                    attempt = self.governor.register_attempt(slot_key)
-                except RetryBudgetExceeded:
-                    # Allowance spent: keep the last attempt as a rejected candidate
-                    # so the UI can show what happened rather than silently dropping it.
-                    break
-
-                candidate = await self._generate_one_image(
-                    record, result, brief, attempt, prompt_override
-                )
-                gate = evaluate_image(candidate, request, self.storage, attempt=attempt)
-                candidate.gate = gate
-
-                if gate.verdict is GateVerdict.PASS:
-                    break
-                if gate.verdict is GateVerdict.REJECT:
-                    break
-
-                # RETRY: say something new about what failed, or stop.
-                prompt_override = stricter_prompt(brief.image_prompt, gate)
-                await self._emit(
-                    record,
-                    Stage.QUALITY_GATE,
-                    "progress",
-                    f"candidate {brief.index} failed {gate.reason}; retrying once",
-                    (brief.index + 0.5) / max(1, total),
-                )
-
-            if candidate is not None:
-                result.images.append(candidate)
-                result.total_cost_usd += candidate.cost_usd
-
+        async def one(brief) -> ImageCandidate | None:
+            nonlocal done
+            candidate = await self._image_slot(record, result, brief, total)
+            done += 1
             await self._emit(
                 record,
                 Stage.IMAGE_GEN,
                 "progress",
-                f"candidate {brief.index + 1}/{total} done",
-                (brief.index + 1) / max(1, total),
+                # Counted as they land, not by slot index: under concurrency slot 4
+                # can finish before slot 1, and a progress bar that jumps backwards
+                # reads as a bug in the thing the user is waiting on.
+                f"candidate {done}/{total} done",
+                done / max(1, total),
             )
+            return candidate
+
+        candidates = await asyncio.gather(*(self._bounded(one(brief)) for brief in briefs))
+
+        for candidate in candidates:
+            if candidate is not None:
+                result.images.append(candidate)
+                result.total_cost_usd += candidate.cost_usd
 
         generated = len(result.images)
         await self._emit(
@@ -433,10 +545,53 @@ class Pipeline:
 
     # --- Stage 6: video ----------------------------------------------------
 
+    def _promote(self, result: JobResult, video_count: int) -> tuple[list, list]:
+        """Choose which candidates are animated, and which are not.
+
+        This is the point the whole project argues about. The stages used to be a
+        1:1 cascade, so the image-stage ranking was a prediction nobody had to act
+        on — being wrong about it cost nothing, because every candidate got a video
+        regardless. Now it decides where 94% of the job's money goes.
+
+        Order of business matters. Gate first, then rank: a candidate that failed
+        quality control is not eligible however highly the predictor scored it,
+        because the gate is a hard pass/fail about whether the frame is usable and
+        the score is a soft opinion about whether it will perform. Conflating them
+        is the usual way these systems get muddled.
+
+        Anything that passed the gate but carries no score sorts last in slot order
+        rather than being dropped. An unscored candidate is a scorer that fell over,
+        not a bad candidate, and if the cut is shallow enough it should still be
+        reachable.
+        """
+        eligible = {c.index: c for c in result.images if c.passed_gate}
+        ranked = [eligible[i] for i in result.image_stage_order if i in eligible]
+        seen = {c.index for c in ranked}
+        ranked += [c for c in eligible.values() if c.index not in seen]
+
+        promote, cut = ranked[:video_count], ranked[video_count:]
+        for candidate in promote:
+            candidate.promoted = True
+        return promote, cut
+
     async def _videos(self, record: JobRecord, result: JobResult) -> None:
         request = record.request
-        promote = [c for c in result.images if c.passed_gate]
+        promote, cut = self._promote(result, request.video_count)
         total = len(promote)
+
+        if cut:
+            # Named, not merely counted. A user who paid for five frames and got two
+            # clips is owed the reason, and "B and D were not animated" with the
+            # ranking already on screen is the reason. Silently returning fewer
+            # videos than frames is how a deliberate decision reads as a bug.
+            await self._emit(
+                record,
+                Stage.IMAGE_RANK,
+                "progress",
+                f"promoting {total} of {total + len(cut)} to video; "
+                f"not animating {', '.join(chr(ord('A') + c.index) for c in cut)}",
+                0.9,
+            )
 
         native = self.videos.supports_duration(request.duration_seconds)
         delivered = self.videos.deliverable_duration(request.duration_seconds)
@@ -457,7 +612,11 @@ class Pipeline:
             f"animating {total} candidates at {request.duration_seconds:.0f}s — {note}",
         )
 
-        for position, source in enumerate(promote):
+        limit = min(self.governor.settings.max_concurrent_generations, max(1, total))
+        done = 0
+
+        async def one(position: int, source) -> VideoCandidate:
+            nonlocal done
             seed = request.candidate_seed(source.index)
             key = f"generations/{request.job_id}/vid_{source.index}.mp4"
             gen_request = VideoGenRequest(
@@ -531,8 +690,6 @@ class Pipeline:
                 )
 
             video.thumbnail = source.asset
-            result.videos.append(video)
-            result.total_cost_usd += video.cost_usd
 
             # Verify the delivered file, not the provider's claim about it. The
             # project commits to 8-10 s output and the only trustworthy source for
@@ -547,15 +704,34 @@ class Pipeline:
                 video.was_chained = True
                 video.seam_consistency = check.seam_consistency
 
+            done += 1
             await self._emit(
                 record,
                 Stage.VIDEO_GEN,
                 "progress",
-                f"video {position + 1}/{total} done",
-                (position + 1) / max(1, total),
+                f"video {done}/{total} done",
+                done / max(1, total),
             )
+            return video
 
-        await self._emit(record, Stage.VIDEO_GEN, "completed", f"{total} videos generated", 1.0)
+        # Two clips at ~2 minutes each were four minutes end to end for no reason
+        # other than the order they were written in. Same guarantee as the image
+        # stage: gather preserves argument order, so `result.videos` stays indexed
+        # by promotion position however the provider chooses to finish.
+        videos = await asyncio.gather(
+            *(self._bounded(one(position, source)) for position, source in enumerate(promote))
+        )
+        for video in videos:
+            result.videos.append(video)
+            result.total_cost_usd += video.cost_usd
+
+        await self._emit(
+            record,
+            Stage.VIDEO_GEN,
+            "completed",
+            f"{total} videos generated, {limit} at a time",
+            1.0,
+        )
 
     async def _verify_delivered(self, record: JobRecord, video: VideoCandidate):
         """Probe a delivered clip and report what the file really contains.
@@ -631,7 +807,26 @@ class Pipeline:
         for video in result.videos:
             video.platform_renders.setdefault(ratio, video.asset)
 
-        report = deliver(result, record.request, self.storage, bed=self.audio_bed)
+        # Chosen here rather than at construction because the choice depends on the
+        # job: the mood the user picked is what the bed is scored to. Synthesis runs
+        # ffmpeg, so it happens once per job at delivery rather than once per clip.
+        bed = self.audio_bed
+        if bed is None:
+            bed = await asyncio.to_thread(
+                choose_bed,
+                self.audio_library,
+                record.request.mood.value,
+                record.request.duration_seconds,
+            )
+            await self._emit(
+                record,
+                Stage.DELIVERY,
+                "progress",
+                f"soundtrack: {bed.credit}",
+                0.1,
+            )
+
+        report = deliver(result, record.request, self.storage, bed=bed)
         result.delivery = report
 
         for render in report.renders:
@@ -667,6 +862,7 @@ class Pipeline:
             self.llm.model,
             request.candidate_count,
             request.duration_seconds,
+            request.video_count,
         )
 
         try:

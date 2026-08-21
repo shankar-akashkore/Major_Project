@@ -290,9 +290,14 @@ a `warning` event rather than shipping quietly.
 
 **Audio without a recorded licence cannot be constructed.** `adml.audio.AudioBed`
 raises `LicenceMissing` without a title, source and licence. This project ships no
-audio content: no bed is the normal state and the report says so, and the synthesised
-tone used to exercise the mixing path is flagged `is_test_signal` so it can never be
-described as a soundtrack.
+*licensed* audio, and for a while concluded from that it should ship silence — which
+it did, under a field in the report nobody reads. Delivery now synthesises a chord
+progression scored to the job's mood, flagged `generated` and credited as carrying no
+third-party rights, so the manifest cannot be mistaken about which it is. Drop a track
+plus a JSON licence sidecar into `fixtures/audio/` and it takes precedence; a file
+without a sidecar is skipped rather than shipped with the provenance left blank. The
+220 Hz tone used to exercise the mixing path is separately flagged `is_test_signal`
+and can never be described as a soundtrack.
 
 **A replay that read nothing is caught, not trusted.** The golden demo set replays
 frozen generations through the real pipeline, and the first replay written reported
@@ -471,6 +476,19 @@ Verified on this machine, and they shaped the architecture:
       budget (week 5). **Settled: yes, natively — chaining is not required.**
       Kling 2.5 Turbo Pro does 10 s at $0.07/s. See
       [docs/provider-spike.md](docs/provider-spike.md).
+- [ ] **Re-freeze the golden bundle ($1.60) after the scale fix is confirmed.**
+      `replay_golden.py aurora-reels` now reports prompt drift on all five slots,
+      correctly: the frozen frames were generated from a prompt that said nothing
+      about product size. This must **not** be settled with `--accept` — that
+      records the new prompt beside images that never came from it, which is the
+      exact mismatch the check exists to catch. It needs a real re-freeze, and
+      only after the $0.20 image test shows the new prompt is worth freezing.
+- [ ] **Re-run five images ($0.20) to check the scale instruction lands.** The
+      first live iPhone job returned a handset taller than the model: nothing in
+      the prompt stated the product's physical size, and three separate phrases
+      asked for it to be *prominent*. Fixed, but the fix has only been tested
+      against string assertions — Seedream has never seen it. Images only, no
+      video, so it is a fifth of a job's cost to find out.
 - [ ] **Run the two contract smoke tests ($0.39 total) before any bulk run.** The
       live adapters are written against fal's published schemas and tested
       against a stub transport, which proves they implement the documentation and
@@ -563,10 +581,12 @@ Verified on this machine, and they shaped the architecture:
       exists, the multipart path through to a downloadable bundle, the 409 that
       distinguishes "not delivered yet" from "no such job", the storage-root refusal,
       and two apps proved not to share state.
-- [ ] **Supply a licensed music bed.** The mix is built and verified, and the project
-      ships no audio, so a delivered clip is silent until a bed with recorded
-      provenance is passed to the pipeline. The tone used in tests is flagged as a
-      test signal and must not be shipped.
+- [ ] **Supply a licensed music bed.** Optional now rather than blocking: every
+      delivered clip carries a synthesised, mood-scored soundtrack that needs no
+      licence, so nothing ships silent. Real music still sounds better — drop the
+      file and a JSON sidecar recording its title, source and licence into
+      `fixtures/audio/` and it wins. A file without a sidecar is skipped, because a
+      permissive directory scan is not a rights decision.
 - [x] **The golden demo set** (week 14): a job frozen to disk — uploads, brief text,
       generated frames and clips — and replayed through the *real* pipeline offline
       for $0.0000, so the gate, both rankings and all of delivery still run. That

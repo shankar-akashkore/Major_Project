@@ -18,11 +18,17 @@ from __future__ import annotations
 
 import base64
 import json
+from unittest import mock
 
 import adproviders as P
 import httpx
 import pytest
-from adproviders.fal import KLING_I2V_ENDPOINT, SEEDREAM_EDIT_ENDPOINT, as_data_uri
+from adproviders.fal import (
+    KLING_I2V_ENDPOINT,
+    RATE_LIMIT_RETRIES,
+    SEEDREAM_EDIT_ENDPOINT,
+    as_data_uri,
+)
 from adschema import AspectRatio, DesignPoint, ShotBrief
 from adschema.enums import CameraAngle, Composition, Lighting, MotionIntent
 
@@ -40,12 +46,18 @@ def _brief(index: int = 0) -> ShotBrief:
             angle=CameraAngle.EYE_LEVEL,
             lighting=Lighting.SOFT_DIFFUSED,
             composition=Composition.CENTERED_HERO,
-            motion=MotionIntent.SLOW_DOLLY_IN,
+            motion=MotionIntent.PRODUCT_REVEAL,
             seed=7,
         ),
         image_prompt="Advertising photograph for Aurora Serum.",
         negative_prompt="distorted face, extra fingers",
-        motion_prompt="slow smooth dolly in toward the subject",
+        # Both prompts are shaped like what `compile_briefs` really emits. This
+        # fixture used to say "slow smooth dolly in toward the subject" and carry
+        # no video negatives at all, which is how the payload assertions below
+        # went on passing while the adapter shipped the image negatives to the
+        # video endpoint. A stub kinder than the pipeline tests nothing.
+        motion_prompt="ACTION: The model raises the product up into frame.",
+        video_negative_prompt="static image, still photo, camera-only movement",
         concept="Calm premium hero shot.",
     )
 
@@ -54,7 +66,13 @@ class _Recorder:
     """Captures every request the adapter makes, and serves canned responses."""
 
     def __init__(
-        self, *, queue: bool = True, fail_with: int | None = None, status: str = "COMPLETED"
+        self,
+        *,
+        queue: bool = True,
+        fail_with: int | None = None,
+        status: str = "COMPLETED",
+        rate_limit_first: int = 0,
+        retry_after: str | None = None,
     ):
         self.requests: list[httpx.Request] = []
         self.bodies: list[dict] = []
@@ -62,6 +80,10 @@ class _Recorder:
         self.fail_with = fail_with
         self.status = status
         self.status_polls = 0
+        #: Reject this many submissions with a 429 before accepting one.
+        self.rate_limit_first = rate_limit_first
+        self.retry_after = retry_after
+        self.submissions = 0
         # The queue's response_url does not name the model, so which result to
         # serve has to be remembered from the submit call.
         self.submitted_endpoint = ""
@@ -76,6 +98,10 @@ class _Recorder:
         if request.method == "POST":
             self.bodies.append(json.loads(request.content))
             self.submitted_endpoint = url
+            self.submissions += 1
+            if self.submissions <= self.rate_limit_first:
+                headers = {"retry-after": self.retry_after} if self.retry_after else {}
+                return httpx.Response(429, text="slow down", headers=headers)
             if self.fail_with:
                 return httpx.Response(self.fail_with, text="nope")
             if not self.queue:
@@ -128,6 +154,10 @@ class _Recorder:
             ],
             "seed": 4242,
         }
+
+
+async def _no_sleep(_seconds: float) -> None:
+    """Skip the backoff. These tests are about the retry, not about the waiting."""
 
 
 def _client(recorder: _Recorder, key: str = "test-key") -> P.FalClient:
@@ -271,7 +301,7 @@ async def test_a_nine_second_request_is_sent_and_reported_as_ten(storage, refere
     body = recorder.bodies[0]
     assert body["duration"] == "10", "duration is a string enum, not a number"
     assert body["image_url"].startswith("data:image/")
-    assert body["prompt"] == "slow smooth dolly in toward the subject"
+    assert body["prompt"] == "ACTION: The model raises the product up into frame."
     assert body["negative_prompt"]
     assert "seed" not in body, "the endpoint has no seed parameter"
 
@@ -280,6 +310,63 @@ async def test_a_nine_second_request_is_sent_and_reported_as_ten(storage, refere
     assert result.seed_honoured is False
     assert not result.was_chained
     assert storage.get_bytes(result.asset.key) == MP4_BYTES
+
+
+async def test_the_video_stage_sends_the_video_negatives_not_the_image_ones(storage, references):
+    """The payload half of the zoom bug.
+
+    The first full live job returned three clips that were slow pans across a
+    still frame. Part of the reason was here: the adapter sent
+    ``brief.negative_prompt`` — a list about extra fingers and warped labels that
+    never once mentions motion — so nothing in the request ever discouraged the
+    model from doing exactly that.
+
+    Asserting the *absence* of the image list matters as much as the presence of
+    the video one. A payload carrying both would look right in a diff and would
+    still be spending the negative-prompt budget on artefacts the video stage was
+    not at risk of.
+    """
+    _, product = references
+    recorder = _Recorder()
+    provider = P.FalVideoProvider(storage, client=_client(recorder))
+
+    await provider.generate(
+        P.VideoGenRequest(
+            brief=_brief(),
+            start_image=product,
+            duration_seconds=9.0,
+            aspect_ratio=AspectRatio.VERTICAL_9_16,
+            seed=7,
+            output_key="generations/j/vid_0.mp4",
+        )
+    )
+
+    negatives = recorder.bodies[0]["negative_prompt"]
+    assert "static image" in negatives
+    assert "extra fingers" not in negatives, "these are the image stage's negatives"
+
+
+async def test_a_brief_without_video_negatives_still_gets_something_useful(storage, references):
+    """Briefs predate the field, and a golden bundle frozen before it exists must
+    still replay. Falling back to the image negatives is worse than the video ones
+    and much better than sending an empty string, which some endpoints read as a
+    request to suppress nothing."""
+    _, product = references
+    recorder = _Recorder()
+    provider = P.FalVideoProvider(storage, client=_client(recorder))
+
+    await provider.generate(
+        P.VideoGenRequest(
+            brief=_brief().model_copy(update={"video_negative_prompt": ""}),
+            start_image=product,
+            duration_seconds=9.0,
+            aspect_ratio=AspectRatio.VERTICAL_9_16,
+            seed=7,
+            output_key="generations/j/vid_0.mp4",
+        )
+    )
+
+    assert recorder.bodies[0]["negative_prompt"] == "distorted face, extra fingers"
 
 
 async def test_a_five_second_request_stays_five(storage, references):
@@ -470,3 +557,111 @@ def test_live_mode_with_a_key_resolves_the_fal_adapters(tmp_path):
     assert video.deliverable_duration(9.0) == 10.0
     assert video.honours_seed is False
     assert KLING_I2V_ENDPOINT.endswith("image-to-video")
+
+
+# --- Rate limiting ---------------------------------------------------------
+#
+# These exist because the pipeline stopped submitting its slots one at a time.
+# Five concurrent submissions is a shape that invites a 429, and a 429 is the one
+# error class where retrying is unambiguously correct: the request was refused,
+# so nothing was generated and nothing was charged. Failing the slot instead
+# would spend the user's attention on a candidate they never receive.
+
+
+async def test_a_rate_limited_submission_is_retried_rather_than_failed(storage, references):
+    human, product = references
+    recorder = _Recorder(rate_limit_first=2)
+    # Backoff neutralised: what is under test is the retry, not the waiting.
+    provider = P.FalImageProvider(storage, client=_client(recorder))
+
+    with mock.patch("adproviders.fal.asyncio.sleep", new=_no_sleep):
+        result = await provider.generate(
+            P.ImageGenRequest(
+                brief=_brief(),
+                references=[human, product],
+                aspect_ratio=AspectRatio.VERTICAL_9_16,
+                seed=7,
+                output_key="generations/j/img_0.png",
+            )
+        )
+
+    assert recorder.submissions == 3, "the 429s were not retried"
+    assert result.asset.key == "generations/j/img_0.png"
+
+
+async def test_the_servers_own_retry_after_is_honoured_over_our_backoff(storage, references):
+    """When fal states a wait, waiting a different amount is just being wrong politely."""
+    human, product = references
+    recorder = _Recorder(rate_limit_first=1, retry_after="7")
+    provider = P.FalImageProvider(storage, client=_client(recorder))
+
+    waited: list[float] = []
+
+    async def record(seconds: float) -> None:
+        waited.append(seconds)
+
+    with mock.patch("adproviders.fal.asyncio.sleep", new=record):
+        await provider.generate(
+            P.ImageGenRequest(
+                brief=_brief(),
+                references=[human, product],
+                aspect_ratio=AspectRatio.VERTICAL_9_16,
+                seed=7,
+                output_key="generations/j/img_0.png",
+            )
+        )
+
+    assert 7.0 in waited, f"ignored Retry-After: 7 and waited {waited} instead"
+
+
+async def test_a_persistent_rate_limit_fails_with_something_actionable(storage, references):
+    """The message has to name the knob, because the user is the one who turns it."""
+    human, product = references
+    recorder = _Recorder(rate_limit_first=99)
+    provider = P.FalImageProvider(storage, client=_client(recorder))
+
+    with mock.patch("adproviders.fal.asyncio.sleep", new=_no_sleep):
+        with pytest.raises(P.ProviderError) as excinfo:
+            await provider.generate(
+                P.ImageGenRequest(
+                    brief=_brief(),
+                    references=[human, product],
+                    aspect_ratio=AspectRatio.VERTICAL_9_16,
+                    seed=7,
+                    output_key="generations/j/img_0.png",
+                )
+            )
+
+    message = str(excinfo.value)
+    assert "AD_MAX_CONCURRENT_GENERATIONS" in message
+    # And it must say the money is safe, because that is the user's first question.
+    assert "nothing was charged" in message
+    assert recorder.submissions == RATE_LIMIT_RETRIES + 1
+
+
+async def test_a_rate_limit_never_escapes_as_its_internal_type(storage, references):
+    """`_RateLimited` is a `ProviderError`, and it must not leak past the retry loop.
+
+    A caller that catches `ProviderError` should not have to know this module has a
+    private subclass, and one that catches the subclass should not be able to.
+    """
+    from adproviders.fal import _RateLimited
+
+    human, product = references
+    recorder = _Recorder(rate_limit_first=99)
+    provider = P.FalImageProvider(storage, client=_client(recorder))
+
+    with mock.patch("adproviders.fal.asyncio.sleep", new=_no_sleep):
+        with pytest.raises(P.ProviderError) as excinfo:
+            await provider.generate(
+                P.ImageGenRequest(
+                    brief=_brief(),
+                    references=[human, product],
+                    aspect_ratio=AspectRatio.VERTICAL_9_16,
+                    seed=7,
+                    output_key="generations/j/img_0.png",
+                )
+            )
+
+    assert not isinstance(excinfo.value, _RateLimited)
+    assert isinstance(excinfo.value.__cause__, _RateLimited)

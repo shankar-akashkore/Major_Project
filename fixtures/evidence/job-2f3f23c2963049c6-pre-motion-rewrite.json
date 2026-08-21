@@ -1,0 +1,1474 @@
+{
+  "request": {
+    "job_id": "2f3f23c2963049c6",
+    "created_at": "2026-08-20T09:01:32.469321Z",
+    "human_model_image": {
+      "key": "uploads/2f3f23c2963049c6/human.jpeg",
+      "url": "/media/uploads/2f3f23c2963049c6/human.jpeg",
+      "mime_type": "image/jpeg",
+      "width": null,
+      "height": null,
+      "sha256": "c8fdf9bd6d9ba731d8cf12a759c9a8fb73ac597b17bf513c01f591d10cb4ce52"
+    },
+    "product_image": {
+      "key": "uploads/2f3f23c2963049c6/product.jpeg",
+      "url": "/media/uploads/2f3f23c2963049c6/product.jpeg",
+      "mime_type": "image/jpeg",
+      "width": null,
+      "height": null,
+      "sha256": "69791f49746b2f956467f8260bb667fea5bc42636bea4ed6bb58989abe4d8b9c"
+    },
+    "logo_image": null,
+    "product_name": "Sujal's Shoes",
+    "caption": "Just Do It",
+    "cta_text": "Shop now",
+    "additional_prompt": "the shoes should be in the hands of the human model or pointing the direction towards the shoes",
+    "negative_constraints": "",
+    "vertical": "other",
+    "platform": "instagram_reels",
+    "audience": {
+      "age_band": "18-34",
+      "region": "IN",
+      "language": "en"
+    },
+    "theme": {
+      "palette": [
+        "#d3d2dd",
+        "#271959",
+        "#63568b",
+        "#b1a9d7",
+        "#100831"
+      ],
+      "background": "soft_gradient",
+      "background_color": null,
+      "palette_auto_extracted": true
+    },
+    "mood": "calm_premium",
+    "aspect_ratio_override": null,
+    "duration_seconds": 8.0,
+    "candidate_count": 3,
+    "locked_angle": null,
+    "seed": 0,
+    "consent": {
+      "has_model_release": true,
+      "not_a_public_figure": true,
+      "attested_at": "2026-08-20T09:01:32.462680Z",
+      "attested_by": null
+    },
+    "tier": "mock"
+  },
+  "state": "completed",
+  "result": {
+    "job_id": "2f3f23c2963049c6",
+    "intake": {
+      "references": [
+        {
+          "role": "human_model",
+          "asset": {
+            "key": "uploads/2f3f23c2963049c6/human.jpeg",
+            "url": "/media/uploads/2f3f23c2963049c6/human.jpeg",
+            "mime_type": "image/jpeg",
+            "width": null,
+            "height": null,
+            "sha256": "c8fdf9bd6d9ba731d8cf12a759c9a8fb73ac597b17bf513c01f591d10cb4ce52"
+          },
+          "width": 576,
+          "height": 1280,
+          "checks": [
+            {
+              "name": "resolution",
+              "value": 576.0,
+              "threshold": 256.0,
+              "passed": true,
+              "higher_is_better": true,
+              "detail": "576x1280; the short edge must be at least 256px",
+              "implemented": true
+            }
+          ],
+          "measurements": [
+            {
+              "name": "focus",
+              "value": 0.9888,
+              "threshold": 0.35,
+              "passed": true,
+              "higher_is_better": true,
+              "detail": "focus 0.99 of 1.0, measured on the sharpest regions so a deliberately blurred background is not penalised. Advisory until calibrated against real photographs \u2014 see MIN_SHARPNESS.",
+              "implemented": true
+            }
+          ],
+          "advisories": []
+        },
+        {
+          "role": "product",
+          "asset": {
+            "key": "uploads/2f3f23c2963049c6/product.jpeg",
+            "url": "/media/uploads/2f3f23c2963049c6/product.jpeg",
+            "mime_type": "image/jpeg",
+            "width": null,
+            "height": null,
+            "sha256": "69791f49746b2f956467f8260bb667fea5bc42636bea4ed6bb58989abe4d8b9c"
+          },
+          "width": 414,
+          "height": 483,
+          "checks": [
+            {
+              "name": "resolution",
+              "value": 414.0,
+              "threshold": 256.0,
+              "passed": true,
+              "higher_is_better": true,
+              "detail": "414x483; the short edge must be at least 256px",
+              "implemented": true
+            }
+          ],
+          "measurements": [
+            {
+              "name": "focus",
+              "value": 1.0,
+              "threshold": 0.35,
+              "passed": true,
+              "higher_is_better": true,
+              "detail": "focus 1.00 of 1.0, measured on the sharpest regions so a deliberately blurred background is not penalised. Advisory until calibrated against real photographs \u2014 see MIN_SHARPNESS.",
+              "implemented": true
+            }
+          ],
+          "advisories": [
+            "small upload (414x483); 512px or more on the short edge gives the generator noticeably more to work from"
+          ]
+        }
+      ],
+      "palette": [
+        "#d3d2dd",
+        "#271959",
+        "#63568b",
+        "#b1a9d7",
+        "#100831"
+      ],
+      "palette_weights": [
+        0.427,
+        0.1882,
+        0.0939,
+        0.0837,
+        0.0607
+      ],
+      "palette_source": "product-cutout",
+      "cutout": {
+        "method": "flood-fill",
+        "accepted": true,
+        "asset": {
+          "key": "intake/2f3f23c2963049c6/product_cutout.png",
+          "url": "/media/intake/2f3f23c2963049c6/product_cutout.png",
+          "mime_type": "image/png",
+          "width": 414,
+          "height": 483,
+          "sha256": "5e369e2cf6e0703694084d399613f7ad5cddf5753379d356745141c2912500ad"
+        },
+        "coverage": 0.3537,
+        "border_uniformity": 0.7929,
+        "detail": "rembg is not installed (pip install '.[intake]'); used the flood-fill fallback, which the backdrop is flat enough for (uniformity 0.79); kept 35.4% of the frame as product"
+      },
+      "face": {
+        "detector": "opencv-haar",
+        "implemented": true,
+        "faces_found": 1,
+        "box": [
+          204,
+          222,
+          132,
+          132
+        ],
+        "box_area_fraction": 0.0236,
+        "detail": "1 frontal face(s); largest covers 2.4% of the frame. Box retained for the ArcFace identity crop in the Colab work."
+      },
+      "advisories": []
+    },
+    "briefs": {
+      "job_id": "2f3f23c2963049c6",
+      "briefs": [
+        {
+          "index": 0,
+          "design_point": {
+            "index": 0,
+            "angle": "profile",
+            "lighting": "soft_diffused",
+            "composition": "rule_of_thirds_left",
+            "motion": "slow_dolly_in",
+            "seed": 0
+          },
+          "image_prompt": "Advertising photograph for Sujal's Shoes.\n\nREFERENCES \u2014 preserve these exactly:\nImage 1 is the human model. Preserve the model's face, skin tone, hair and body proportions exactly as shown. Do not restyle the face.\nImage 2 is the product. Preserve its exact shape, colour, proportions, label text and finish. The product must be immediately recognisable as the same item.\n\nSHOT:\n- side profile view of the subject\n- soft diffused studio lighting, gentle even shadows\n- subject on the left third, open space to the right\n- smooth soft colour gradient backdrop\n\nLOOK:\n- Mood: calm, premium, understated and expensive-looking\n- Colour palette: #d3d2dd, #271959, #63568b, #b1a9d7, #100831\n- Format: 9:16 vertical-safe framing for instagram reels\n\nCONSTRAINTS:\n- Keep the product and the model's face clear of the top 14% and bottom 20% of the frame, which platform UI covers.\n- The product must be fully visible and unobstructed.\n- Photorealistic commercial photography. No text overlays, captions or graphic elements \u2014 those are composited later.\n\nADDITIONAL DIRECTION: the shoes should be in the hands of the human model or pointing the direction towards the shoes",
+          "negative_prompt": "distorted face, extra fingers, malformed hands, warped product label, duplicated product, unreadable text, watermark, logo artefacts, blurry product, cropped product",
+          "motion_prompt": "slow smooth dolly in toward the subject. The product stays clearly visible and in focus throughout. Preserve the model's identity and the product's exact appearance across every frame. Overall feel: calm, premium, understated and expensive-looking. Duration 8 seconds, single continuous shot, no cuts.",
+          "concept": "Side profile view of the subject with soft diffused studio lighting, subject on the left third."
+        },
+        {
+          "index": 1,
+          "design_point": {
+            "index": 1,
+            "angle": "high_angle",
+            "lighting": "rim_backlit",
+            "composition": "centered_hero",
+            "motion": "static_subtle",
+            "seed": 1
+          },
+          "image_prompt": "Advertising photograph for Sujal's Shoes.\n\nREFERENCES \u2014 preserve these exactly:\nImage 1 is the human model. Preserve the model's face, skin tone, hair and body proportions exactly as shown. Do not restyle the face.\nImage 2 is the product. Preserve its exact shape, colour, proportions, label text and finish. The product must be immediately recognisable as the same item.\n\nSHOT:\n- shot from a slightly high angle looking down\n- rim backlighting separating the subject from the background, glowing edges\n- subject centred, symmetrical hero framing\n- smooth soft colour gradient backdrop\n\nLOOK:\n- Mood: calm, premium, understated and expensive-looking\n- Colour palette: #d3d2dd, #271959, #63568b, #b1a9d7, #100831\n- Format: 9:16 vertical-safe framing for instagram reels\n\nCONSTRAINTS:\n- Keep the product and the model's face clear of the top 14% and bottom 20% of the frame, which platform UI covers.\n- The product must be fully visible and unobstructed.\n- Photorealistic commercial photography. No text overlays, captions or graphic elements \u2014 those are composited later.\n\nADDITIONAL DIRECTION: the shoes should be in the hands of the human model or pointing the direction towards the shoes",
+          "negative_prompt": "distorted face, extra fingers, malformed hands, warped product label, duplicated product, unreadable text, watermark, logo artefacts, blurry product, cropped product",
+          "motion_prompt": "near-static frame with only subtle natural movement. The product stays clearly visible and in focus throughout. Preserve the model's identity and the product's exact appearance across every frame. Overall feel: calm, premium, understated and expensive-looking. Duration 8 seconds, single continuous shot, no cuts.",
+          "concept": "Shot from a slightly high angle looking down with rim backlighting separating the subject from the background, subject centred."
+        },
+        {
+          "index": 2,
+          "design_point": {
+            "index": 2,
+            "angle": "low_angle",
+            "lighting": "high_key",
+            "composition": "product_foreground",
+            "motion": "slow_dolly_out",
+            "seed": 2
+          },
+          "image_prompt": "Advertising photograph for Sujal's Shoes.\n\nREFERENCES \u2014 preserve these exactly:\nImage 1 is the human model. Preserve the model's face, skin tone, hair and body proportions exactly as shown. Do not restyle the face.\nImage 2 is the product. Preserve its exact shape, colour, proportions, label text and finish. The product must be immediately recognisable as the same item.\n\nSHOT:\n- shot from a low angle looking slightly up, making the subject dominant\n- bright high-key lighting, minimal shadow, airy and clean\n- product prominent in the foreground, subject softly behind it\n- smooth soft colour gradient backdrop\n\nLOOK:\n- Mood: calm, premium, understated and expensive-looking\n- Colour palette: #d3d2dd, #271959, #63568b, #b1a9d7, #100831\n- Format: 9:16 vertical-safe framing for instagram reels\n\nCONSTRAINTS:\n- Keep the product and the model's face clear of the top 14% and bottom 20% of the frame, which platform UI covers.\n- The product must be fully visible and unobstructed.\n- Photorealistic commercial photography. No text overlays, captions or graphic elements \u2014 those are composited later.\n\nADDITIONAL DIRECTION: the shoes should be in the hands of the human model or pointing the direction towards the shoes",
+          "negative_prompt": "distorted face, extra fingers, malformed hands, warped product label, duplicated product, unreadable text, watermark, logo artefacts, blurry product, cropped product",
+          "motion_prompt": "slow smooth dolly out revealing more of the scene. The product stays clearly visible and in focus throughout. Preserve the model's identity and the product's exact appearance across every frame. Overall feel: calm, premium, understated and expensive-looking. Duration 8 seconds, single continuous shot, no cuts.",
+          "concept": "Shot from a low angle looking slightly up with bright high-key lighting, product prominent in the foreground."
+        }
+      ],
+      "min_pairwise_distance": 4,
+      "sampler": "latin_hypercube"
+    },
+    "images": [
+      {
+        "index": 0,
+        "brief": {
+          "index": 0,
+          "design_point": {
+            "index": 0,
+            "angle": "profile",
+            "lighting": "soft_diffused",
+            "composition": "rule_of_thirds_left",
+            "motion": "slow_dolly_in",
+            "seed": 0
+          },
+          "image_prompt": "Advertising photograph for Sujal's Shoes.\n\nREFERENCES \u2014 preserve these exactly:\nImage 1 is the human model. Preserve the model's face, skin tone, hair and body proportions exactly as shown. Do not restyle the face.\nImage 2 is the product. Preserve its exact shape, colour, proportions, label text and finish. The product must be immediately recognisable as the same item.\n\nSHOT:\n- side profile view of the subject\n- soft diffused studio lighting, gentle even shadows\n- subject on the left third, open space to the right\n- smooth soft colour gradient backdrop\n\nLOOK:\n- Mood: calm, premium, understated and expensive-looking\n- Colour palette: #d3d2dd, #271959, #63568b, #b1a9d7, #100831\n- Format: 9:16 vertical-safe framing for instagram reels\n\nCONSTRAINTS:\n- Keep the product and the model's face clear of the top 14% and bottom 20% of the frame, which platform UI covers.\n- The product must be fully visible and unobstructed.\n- Photorealistic commercial photography. No text overlays, captions or graphic elements \u2014 those are composited later.\n\nADDITIONAL DIRECTION: the shoes should be in the hands of the human model or pointing the direction towards the shoes",
+          "negative_prompt": "distorted face, extra fingers, malformed hands, warped product label, duplicated product, unreadable text, watermark, logo artefacts, blurry product, cropped product",
+          "motion_prompt": "slow smooth dolly in toward the subject. The product stays clearly visible and in focus throughout. Preserve the model's identity and the product's exact appearance across every frame. Overall feel: calm, premium, understated and expensive-looking. Duration 8 seconds, single continuous shot, no cuts.",
+          "concept": "Side profile view of the subject with soft diffused studio lighting, subject on the left third."
+        },
+        "asset": {
+          "key": "generations/2f3f23c2963049c6/img_0.png",
+          "url": "/media/generations/2f3f23c2963049c6/img_0.png",
+          "mime_type": "image/jpeg",
+          "width": 1920,
+          "height": 3416,
+          "sha256": "49d13543ebee42c667192d64867c5dd67b018114c3c15273cd2296fb142b1a8e"
+        },
+        "tier": "premium",
+        "provider": "seedream-4.5-edit",
+        "seed": 0,
+        "cost_usd": 0.04,
+        "latency_ms": 54057,
+        "created_at": "2026-08-20T09:02:27.538352Z",
+        "gate": {
+          "verdict": "pass",
+          "checks": [
+            {
+              "name": "palette_adherence",
+              "value": 0.6422,
+              "threshold": 0.456,
+              "passed": true,
+              "higher_is_better": true,
+              "detail": "weighted mean \u0394E76 10.7 against the brand palette",
+              "implemented": true
+            },
+            {
+              "name": "safe_area",
+              "value": 0.7783,
+              "threshold": 0.55,
+              "passed": true,
+              "higher_is_better": true,
+              "detail": "78% of attention sits clear of the top 14% / bottom 20% platform chrome",
+              "implemented": true
+            },
+            {
+              "name": "focal_clarity",
+              "value": 0.3394,
+              "threshold": 0.25,
+              "passed": true,
+              "higher_is_better": true,
+              "detail": "attention is concentrated on a clear subject rather than smeared",
+              "implemented": true
+            },
+            {
+              "name": "exposure",
+              "value": 0.6374,
+              "threshold": 0.06,
+              "passed": true,
+              "higher_is_better": true,
+              "detail": "mean luminance 0.64; rejects fully black or blown-out frames",
+              "implemented": true
+            },
+            {
+              "name": "contrast",
+              "value": 0.2548,
+              "threshold": 0.03,
+              "passed": true,
+              "higher_is_better": true,
+              "detail": "RMS contrast 0.255; rejects flat or empty frames",
+              "implemented": true
+            },
+            {
+              "name": "product_identity",
+              "value": 0.0,
+              "threshold": 0.0,
+              "passed": true,
+              "higher_is_better": true,
+              "detail": "DINOv2 cosine vs the rembg product cutout \u2014 lands with the Colab extractor",
+              "implemented": false
+            },
+            {
+              "name": "face_identity",
+              "value": 0.0,
+              "threshold": 0.0,
+              "passed": true,
+              "higher_is_better": true,
+              "detail": "ArcFace cosine vs the human reference \u2014 lands with the Colab extractor",
+              "implemented": false
+            },
+            {
+              "name": "nsfw",
+              "value": 0.0,
+              "threshold": 0.0,
+              "passed": true,
+              "higher_is_better": true,
+              "detail": "safety classifier \u2014 lands with the intake safety gate",
+              "implemented": false
+            }
+          ],
+          "attempt": 1
+        },
+        "score": {
+          "overall": 0.9033,
+          "aesthetic": 1.0,
+          "prompt_alignment": null,
+          "product_salience": 0.3394,
+          "composition": 0.3963,
+          "palette_adherence": 0.6422,
+          "temporal_consistency": null,
+          "motion_quality": null,
+          "hook_strength": null,
+          "product_screen_time": null,
+          "safe_area_compliance": 0.7783,
+          "model_version": "pairwise-linear-20260811",
+          "is_stub": true
+        }
+      },
+      {
+        "index": 1,
+        "brief": {
+          "index": 1,
+          "design_point": {
+            "index": 1,
+            "angle": "high_angle",
+            "lighting": "rim_backlit",
+            "composition": "centered_hero",
+            "motion": "static_subtle",
+            "seed": 1
+          },
+          "image_prompt": "Advertising photograph for Sujal's Shoes.\n\nREFERENCES \u2014 preserve these exactly:\nImage 1 is the human model. Preserve the model's face, skin tone, hair and body proportions exactly as shown. Do not restyle the face.\nImage 2 is the product. Preserve its exact shape, colour, proportions, label text and finish. The product must be immediately recognisable as the same item.\n\nSHOT:\n- shot from a slightly high angle looking down\n- rim backlighting separating the subject from the background, glowing edges\n- subject centred, symmetrical hero framing\n- smooth soft colour gradient backdrop\n\nLOOK:\n- Mood: calm, premium, understated and expensive-looking\n- Colour palette: #d3d2dd, #271959, #63568b, #b1a9d7, #100831\n- Format: 9:16 vertical-safe framing for instagram reels\n\nCONSTRAINTS:\n- Keep the product and the model's face clear of the top 14% and bottom 20% of the frame, which platform UI covers.\n- The product must be fully visible and unobstructed.\n- Photorealistic commercial photography. No text overlays, captions or graphic elements \u2014 those are composited later.\n\nADDITIONAL DIRECTION: the shoes should be in the hands of the human model or pointing the direction towards the shoes",
+          "negative_prompt": "distorted face, extra fingers, malformed hands, warped product label, duplicated product, unreadable text, watermark, logo artefacts, blurry product, cropped product",
+          "motion_prompt": "near-static frame with only subtle natural movement. The product stays clearly visible and in focus throughout. Preserve the model's identity and the product's exact appearance across every frame. Overall feel: calm, premium, understated and expensive-looking. Duration 8 seconds, single continuous shot, no cuts.",
+          "concept": "Shot from a slightly high angle looking down with rim backlighting separating the subject from the background, subject centred."
+        },
+        "asset": {
+          "key": "generations/2f3f23c2963049c6/img_1.png",
+          "url": "/media/generations/2f3f23c2963049c6/img_1.png",
+          "mime_type": "image/jpeg",
+          "width": 1920,
+          "height": 3416,
+          "sha256": "8935f0e9215bf95cfcd9f308d07d112f4fd8b4faebea143d3cc9b7e5e33587c1"
+        },
+        "tier": "premium",
+        "provider": "seedream-4.5-edit",
+        "seed": 1,
+        "cost_usd": 0.04,
+        "latency_ms": 46902,
+        "created_at": "2026-08-20T09:03:14.615880Z",
+        "gate": {
+          "verdict": "pass",
+          "checks": [
+            {
+              "name": "palette_adherence",
+              "value": 0.8857,
+              "threshold": 0.456,
+              "passed": true,
+              "higher_is_better": true,
+              "detail": "weighted mean \u0394E76 3.4 against the brand palette",
+              "implemented": true
+            },
+            {
+              "name": "safe_area",
+              "value": 0.8297,
+              "threshold": 0.55,
+              "passed": true,
+              "higher_is_better": true,
+              "detail": "83% of attention sits clear of the top 14% / bottom 20% platform chrome",
+              "implemented": true
+            },
+            {
+              "name": "focal_clarity",
+              "value": 0.3324,
+              "threshold": 0.25,
+              "passed": true,
+              "higher_is_better": true,
+              "detail": "attention is concentrated on a clear subject rather than smeared",
+              "implemented": true
+            },
+            {
+              "name": "exposure",
+              "value": 0.3691,
+              "threshold": 0.06,
+              "passed": true,
+              "higher_is_better": true,
+              "detail": "mean luminance 0.37; rejects fully black or blown-out frames",
+              "implemented": true
+            },
+            {
+              "name": "contrast",
+              "value": 0.2774,
+              "threshold": 0.03,
+              "passed": true,
+              "higher_is_better": true,
+              "detail": "RMS contrast 0.277; rejects flat or empty frames",
+              "implemented": true
+            },
+            {
+              "name": "product_identity",
+              "value": 0.0,
+              "threshold": 0.0,
+              "passed": true,
+              "higher_is_better": true,
+              "detail": "DINOv2 cosine vs the rembg product cutout \u2014 lands with the Colab extractor",
+              "implemented": false
+            },
+            {
+              "name": "face_identity",
+              "value": 0.0,
+              "threshold": 0.0,
+              "passed": true,
+              "higher_is_better": true,
+              "detail": "ArcFace cosine vs the human reference \u2014 lands with the Colab extractor",
+              "implemented": false
+            },
+            {
+              "name": "nsfw",
+              "value": 0.0,
+              "threshold": 0.0,
+              "passed": true,
+              "higher_is_better": true,
+              "detail": "safety classifier \u2014 lands with the intake safety gate",
+              "implemented": false
+            }
+          ],
+          "attempt": 1
+        },
+        "score": {
+          "overall": 0.0,
+          "aesthetic": 1.0,
+          "prompt_alignment": null,
+          "product_salience": 0.3324,
+          "composition": 0.3457,
+          "palette_adherence": 0.8857,
+          "temporal_consistency": null,
+          "motion_quality": null,
+          "hook_strength": null,
+          "product_screen_time": null,
+          "safe_area_compliance": 0.8297,
+          "model_version": "pairwise-linear-20260811",
+          "is_stub": true
+        }
+      },
+      {
+        "index": 2,
+        "brief": {
+          "index": 2,
+          "design_point": {
+            "index": 2,
+            "angle": "low_angle",
+            "lighting": "high_key",
+            "composition": "product_foreground",
+            "motion": "slow_dolly_out",
+            "seed": 2
+          },
+          "image_prompt": "Advertising photograph for Sujal's Shoes.\n\nREFERENCES \u2014 preserve these exactly:\nImage 1 is the human model. Preserve the model's face, skin tone, hair and body proportions exactly as shown. Do not restyle the face.\nImage 2 is the product. Preserve its exact shape, colour, proportions, label text and finish. The product must be immediately recognisable as the same item.\n\nSHOT:\n- shot from a low angle looking slightly up, making the subject dominant\n- bright high-key lighting, minimal shadow, airy and clean\n- product prominent in the foreground, subject softly behind it\n- smooth soft colour gradient backdrop\n\nLOOK:\n- Mood: calm, premium, understated and expensive-looking\n- Colour palette: #d3d2dd, #271959, #63568b, #b1a9d7, #100831\n- Format: 9:16 vertical-safe framing for instagram reels\n\nCONSTRAINTS:\n- Keep the product and the model's face clear of the top 14% and bottom 20% of the frame, which platform UI covers.\n- The product must be fully visible and unobstructed.\n- Photorealistic commercial photography. No text overlays, captions or graphic elements \u2014 those are composited later.\n\nADDITIONAL DIRECTION: the shoes should be in the hands of the human model or pointing the direction towards the shoes",
+          "negative_prompt": "distorted face, extra fingers, malformed hands, warped product label, duplicated product, unreadable text, watermark, logo artefacts, blurry product, cropped product",
+          "motion_prompt": "slow smooth dolly out revealing more of the scene. The product stays clearly visible and in focus throughout. Preserve the model's identity and the product's exact appearance across every frame. Overall feel: calm, premium, understated and expensive-looking. Duration 8 seconds, single continuous shot, no cuts.",
+          "concept": "Shot from a low angle looking slightly up with bright high-key lighting, product prominent in the foreground."
+        },
+        "asset": {
+          "key": "generations/2f3f23c2963049c6/img_2.png",
+          "url": "/media/generations/2f3f23c2963049c6/img_2.png",
+          "mime_type": "image/jpeg",
+          "width": 1920,
+          "height": 3416,
+          "sha256": "7e457d6aeb30f8749b986a828d5d4f9718b10bcbd591e17d2566dfb348945db2"
+        },
+        "tier": "premium",
+        "provider": "seedream-4.5-edit",
+        "seed": 2,
+        "cost_usd": 0.04,
+        "latency_ms": 49889,
+        "created_at": "2026-08-20T09:04:04.678558Z",
+        "gate": {
+          "verdict": "pass",
+          "checks": [
+            {
+              "name": "palette_adherence",
+              "value": 0.7304,
+              "threshold": 0.456,
+              "passed": true,
+              "higher_is_better": true,
+              "detail": "weighted mean \u0394E76 8.1 against the brand palette",
+              "implemented": true
+            },
+            {
+              "name": "safe_area",
+              "value": 0.706,
+              "threshold": 0.55,
+              "passed": true,
+              "higher_is_better": true,
+              "detail": "71% of attention sits clear of the top 14% / bottom 20% platform chrome",
+              "implemented": true
+            },
+            {
+              "name": "focal_clarity",
+              "value": 0.3773,
+              "threshold": 0.25,
+              "passed": true,
+              "higher_is_better": true,
+              "detail": "attention is concentrated on a clear subject rather than smeared",
+              "implemented": true
+            },
+            {
+              "name": "exposure",
+              "value": 0.7474,
+              "threshold": 0.06,
+              "passed": true,
+              "higher_is_better": true,
+              "detail": "mean luminance 0.75; rejects fully black or blown-out frames",
+              "implemented": true
+            },
+            {
+              "name": "contrast",
+              "value": 0.2368,
+              "threshold": 0.03,
+              "passed": true,
+              "higher_is_better": true,
+              "detail": "RMS contrast 0.237; rejects flat or empty frames",
+              "implemented": true
+            },
+            {
+              "name": "product_identity",
+              "value": 0.0,
+              "threshold": 0.0,
+              "passed": true,
+              "higher_is_better": true,
+              "detail": "DINOv2 cosine vs the rembg product cutout \u2014 lands with the Colab extractor",
+              "implemented": false
+            },
+            {
+              "name": "face_identity",
+              "value": 0.0,
+              "threshold": 0.0,
+              "passed": true,
+              "higher_is_better": true,
+              "detail": "ArcFace cosine vs the human reference \u2014 lands with the Colab extractor",
+              "implemented": false
+            },
+            {
+              "name": "nsfw",
+              "value": 0.0,
+              "threshold": 0.0,
+              "passed": true,
+              "higher_is_better": true,
+              "detail": "safety classifier \u2014 lands with the intake safety gate",
+              "implemented": false
+            }
+          ],
+          "attempt": 1
+        },
+        "score": {
+          "overall": 1.0,
+          "aesthetic": 1.0,
+          "prompt_alignment": null,
+          "product_salience": 0.3773,
+          "composition": 0.6101,
+          "palette_adherence": 0.7304,
+          "temporal_consistency": null,
+          "motion_quality": null,
+          "hook_strength": null,
+          "product_screen_time": null,
+          "safe_area_compliance": 0.706,
+          "model_version": "pairwise-linear-20260811",
+          "is_stub": true
+        }
+      }
+    ],
+    "videos": [
+      {
+        "index": 0,
+        "source_image_index": 0,
+        "brief": {
+          "index": 0,
+          "design_point": {
+            "index": 0,
+            "angle": "profile",
+            "lighting": "soft_diffused",
+            "composition": "rule_of_thirds_left",
+            "motion": "slow_dolly_in",
+            "seed": 0
+          },
+          "image_prompt": "Advertising photograph for Sujal's Shoes.\n\nREFERENCES \u2014 preserve these exactly:\nImage 1 is the human model. Preserve the model's face, skin tone, hair and body proportions exactly as shown. Do not restyle the face.\nImage 2 is the product. Preserve its exact shape, colour, proportions, label text and finish. The product must be immediately recognisable as the same item.\n\nSHOT:\n- side profile view of the subject\n- soft diffused studio lighting, gentle even shadows\n- subject on the left third, open space to the right\n- smooth soft colour gradient backdrop\n\nLOOK:\n- Mood: calm, premium, understated and expensive-looking\n- Colour palette: #d3d2dd, #271959, #63568b, #b1a9d7, #100831\n- Format: 9:16 vertical-safe framing for instagram reels\n\nCONSTRAINTS:\n- Keep the product and the model's face clear of the top 14% and bottom 20% of the frame, which platform UI covers.\n- The product must be fully visible and unobstructed.\n- Photorealistic commercial photography. No text overlays, captions or graphic elements \u2014 those are composited later.\n\nADDITIONAL DIRECTION: the shoes should be in the hands of the human model or pointing the direction towards the shoes",
+          "negative_prompt": "distorted face, extra fingers, malformed hands, warped product label, duplicated product, unreadable text, watermark, logo artefacts, blurry product, cropped product",
+          "motion_prompt": "slow smooth dolly in toward the subject. The product stays clearly visible and in focus throughout. Preserve the model's identity and the product's exact appearance across every frame. Overall feel: calm, premium, understated and expensive-looking. Duration 8 seconds, single continuous shot, no cuts.",
+          "concept": "Side profile view of the subject with soft diffused studio lighting, subject on the left third."
+        },
+        "asset": {
+          "key": "generations/2f3f23c2963049c6/vid_0.mp4",
+          "url": "/media/generations/2f3f23c2963049c6/vid_0.mp4",
+          "mime_type": "video/mp4",
+          "width": null,
+          "height": null,
+          "sha256": "1121a1d64ecdd435f9df4a3caa8b277265caa4789ec5381b09db34678cff8818"
+        },
+        "duration_seconds": 10.041667,
+        "fps": 24,
+        "tier": "premium",
+        "provider": "kling-2.5-turbo-pro",
+        "seed": 0,
+        "cost_usd": 0.7,
+        "latency_ms": 129785,
+        "created_at": "2026-08-20T09:06:17.330641Z",
+        "was_chained": false,
+        "seam_consistency": null,
+        "requested_duration_seconds": 8.0,
+        "seed_honoured": false,
+        "score": {
+          "overall": 0.7521,
+          "aesthetic": 1.0,
+          "prompt_alignment": null,
+          "product_salience": null,
+          "composition": null,
+          "palette_adherence": null,
+          "temporal_consistency": 0.9929,
+          "motion_quality": 1.0,
+          "hook_strength": 0.2527,
+          "product_screen_time": 1.0,
+          "safe_area_compliance": 0.7774,
+          "model_version": "heuristic-0",
+          "is_stub": true
+        },
+        "thumbnail": {
+          "key": "generations/2f3f23c2963049c6/img_0.png",
+          "url": "/media/generations/2f3f23c2963049c6/img_0.png",
+          "mime_type": "image/jpeg",
+          "width": 1920,
+          "height": 3416,
+          "sha256": "49d13543ebee42c667192d64867c5dd67b018114c3c15273cd2296fb142b1a8e"
+        },
+        "platform_renders": {
+          "9:16": {
+            "key": "generations/2f3f23c2963049c6/vid_0.mp4",
+            "url": "/media/generations/2f3f23c2963049c6/vid_0.mp4",
+            "mime_type": "video/mp4",
+            "width": null,
+            "height": null,
+            "sha256": "1121a1d64ecdd435f9df4a3caa8b277265caa4789ec5381b09db34678cff8818"
+          }
+        }
+      },
+      {
+        "index": 1,
+        "source_image_index": 1,
+        "brief": {
+          "index": 1,
+          "design_point": {
+            "index": 1,
+            "angle": "high_angle",
+            "lighting": "rim_backlit",
+            "composition": "centered_hero",
+            "motion": "static_subtle",
+            "seed": 1
+          },
+          "image_prompt": "Advertising photograph for Sujal's Shoes.\n\nREFERENCES \u2014 preserve these exactly:\nImage 1 is the human model. Preserve the model's face, skin tone, hair and body proportions exactly as shown. Do not restyle the face.\nImage 2 is the product. Preserve its exact shape, colour, proportions, label text and finish. The product must be immediately recognisable as the same item.\n\nSHOT:\n- shot from a slightly high angle looking down\n- rim backlighting separating the subject from the background, glowing edges\n- subject centred, symmetrical hero framing\n- smooth soft colour gradient backdrop\n\nLOOK:\n- Mood: calm, premium, understated and expensive-looking\n- Colour palette: #d3d2dd, #271959, #63568b, #b1a9d7, #100831\n- Format: 9:16 vertical-safe framing for instagram reels\n\nCONSTRAINTS:\n- Keep the product and the model's face clear of the top 14% and bottom 20% of the frame, which platform UI covers.\n- The product must be fully visible and unobstructed.\n- Photorealistic commercial photography. No text overlays, captions or graphic elements \u2014 those are composited later.\n\nADDITIONAL DIRECTION: the shoes should be in the hands of the human model or pointing the direction towards the shoes",
+          "negative_prompt": "distorted face, extra fingers, malformed hands, warped product label, duplicated product, unreadable text, watermark, logo artefacts, blurry product, cropped product",
+          "motion_prompt": "near-static frame with only subtle natural movement. The product stays clearly visible and in focus throughout. Preserve the model's identity and the product's exact appearance across every frame. Overall feel: calm, premium, understated and expensive-looking. Duration 8 seconds, single continuous shot, no cuts.",
+          "concept": "Shot from a slightly high angle looking down with rim backlighting separating the subject from the background, subject centred."
+        },
+        "asset": {
+          "key": "generations/2f3f23c2963049c6/vid_1.mp4",
+          "url": "/media/generations/2f3f23c2963049c6/vid_1.mp4",
+          "mime_type": "video/mp4",
+          "width": null,
+          "height": null,
+          "sha256": "c4dcb2638fe5194b23523eb25d825aa917b0129dbaafbebceed89405a6f534e4"
+        },
+        "duration_seconds": 10.041667,
+        "fps": 24,
+        "tier": "premium",
+        "provider": "kling-2.5-turbo-pro",
+        "seed": 1,
+        "cost_usd": 0.7,
+        "latency_ms": 116008,
+        "created_at": "2026-08-20T09:08:13.924989Z",
+        "was_chained": false,
+        "seam_consistency": null,
+        "requested_duration_seconds": 8.0,
+        "seed_honoured": false,
+        "score": {
+          "overall": 0.7591,
+          "aesthetic": 1.0,
+          "prompt_alignment": null,
+          "product_salience": null,
+          "composition": null,
+          "palette_adherence": null,
+          "temporal_consistency": 0.9937,
+          "motion_quality": 1.0,
+          "hook_strength": 0.2553,
+          "product_screen_time": 1.0,
+          "safe_area_compliance": 0.8374,
+          "model_version": "heuristic-0",
+          "is_stub": true
+        },
+        "thumbnail": {
+          "key": "generations/2f3f23c2963049c6/img_1.png",
+          "url": "/media/generations/2f3f23c2963049c6/img_1.png",
+          "mime_type": "image/jpeg",
+          "width": 1920,
+          "height": 3416,
+          "sha256": "8935f0e9215bf95cfcd9f308d07d112f4fd8b4faebea143d3cc9b7e5e33587c1"
+        },
+        "platform_renders": {
+          "9:16": {
+            "key": "generations/2f3f23c2963049c6/vid_1.mp4",
+            "url": "/media/generations/2f3f23c2963049c6/vid_1.mp4",
+            "mime_type": "video/mp4",
+            "width": null,
+            "height": null,
+            "sha256": "c4dcb2638fe5194b23523eb25d825aa917b0129dbaafbebceed89405a6f534e4"
+          }
+        }
+      },
+      {
+        "index": 2,
+        "source_image_index": 2,
+        "brief": {
+          "index": 2,
+          "design_point": {
+            "index": 2,
+            "angle": "low_angle",
+            "lighting": "high_key",
+            "composition": "product_foreground",
+            "motion": "slow_dolly_out",
+            "seed": 2
+          },
+          "image_prompt": "Advertising photograph for Sujal's Shoes.\n\nREFERENCES \u2014 preserve these exactly:\nImage 1 is the human model. Preserve the model's face, skin tone, hair and body proportions exactly as shown. Do not restyle the face.\nImage 2 is the product. Preserve its exact shape, colour, proportions, label text and finish. The product must be immediately recognisable as the same item.\n\nSHOT:\n- shot from a low angle looking slightly up, making the subject dominant\n- bright high-key lighting, minimal shadow, airy and clean\n- product prominent in the foreground, subject softly behind it\n- smooth soft colour gradient backdrop\n\nLOOK:\n- Mood: calm, premium, understated and expensive-looking\n- Colour palette: #d3d2dd, #271959, #63568b, #b1a9d7, #100831\n- Format: 9:16 vertical-safe framing for instagram reels\n\nCONSTRAINTS:\n- Keep the product and the model's face clear of the top 14% and bottom 20% of the frame, which platform UI covers.\n- The product must be fully visible and unobstructed.\n- Photorealistic commercial photography. No text overlays, captions or graphic elements \u2014 those are composited later.\n\nADDITIONAL DIRECTION: the shoes should be in the hands of the human model or pointing the direction towards the shoes",
+          "negative_prompt": "distorted face, extra fingers, malformed hands, warped product label, duplicated product, unreadable text, watermark, logo artefacts, blurry product, cropped product",
+          "motion_prompt": "slow smooth dolly out revealing more of the scene. The product stays clearly visible and in focus throughout. Preserve the model's identity and the product's exact appearance across every frame. Overall feel: calm, premium, understated and expensive-looking. Duration 8 seconds, single continuous shot, no cuts.",
+          "concept": "Shot from a low angle looking slightly up with bright high-key lighting, product prominent in the foreground."
+        },
+        "asset": {
+          "key": "generations/2f3f23c2963049c6/vid_2.mp4",
+          "url": "/media/generations/2f3f23c2963049c6/vid_2.mp4",
+          "mime_type": "video/mp4",
+          "width": null,
+          "height": null,
+          "sha256": "37f372289502bacf8a6820f2071e56a6ad7abe05fa79bcadc1d569caa76cdd32"
+        },
+        "duration_seconds": 10.041667,
+        "fps": 24,
+        "tier": "premium",
+        "provider": "kling-2.5-turbo-pro",
+        "seed": 2,
+        "cost_usd": 0.7,
+        "latency_ms": 103117,
+        "created_at": "2026-08-20T09:09:57.520872Z",
+        "was_chained": false,
+        "seam_consistency": null,
+        "requested_duration_seconds": 8.0,
+        "seed_honoured": false,
+        "score": {
+          "overall": 0.7639,
+          "aesthetic": 1.0,
+          "prompt_alignment": null,
+          "product_salience": null,
+          "composition": null,
+          "palette_adherence": null,
+          "temporal_consistency": 0.9806,
+          "motion_quality": 1.0,
+          "hook_strength": 0.3231,
+          "product_screen_time": 1.0,
+          "safe_area_compliance": 0.7082,
+          "model_version": "heuristic-0",
+          "is_stub": true
+        },
+        "thumbnail": {
+          "key": "generations/2f3f23c2963049c6/img_2.png",
+          "url": "/media/generations/2f3f23c2963049c6/img_2.png",
+          "mime_type": "image/jpeg",
+          "width": 1920,
+          "height": 3416,
+          "sha256": "7e457d6aeb30f8749b986a828d5d4f9718b10bcbd591e17d2566dfb348945db2"
+        },
+        "platform_renders": {
+          "9:16": {
+            "key": "delivery/2f3f23c2963049c6/2_9x16.mp4",
+            "url": "/media/delivery/2f3f23c2963049c6/2_9x16.mp4",
+            "mime_type": "video/mp4",
+            "width": 404,
+            "height": 720,
+            "sha256": "b6f050dd782f1f2103181cbbbe89250cb5193806dc3939cb9c0d7e8b51bd0038"
+          },
+          "4:5": {
+            "key": "delivery/2f3f23c2963049c6/2_4x5.mp4",
+            "url": "/media/delivery/2f3f23c2963049c6/2_4x5.mp4",
+            "mime_type": "video/mp4",
+            "width": 576,
+            "height": 720,
+            "sha256": "d761d9830d5838f0423f3f9a78774302e45297631fdeaf65a486716418099917"
+          },
+          "16:9": {
+            "key": "delivery/2f3f23c2963049c6/2_16x9.mp4",
+            "url": "/media/delivery/2f3f23c2963049c6/2_16x9.mp4",
+            "mime_type": "video/mp4",
+            "width": 720,
+            "height": 404,
+            "sha256": "6313c87f9b4a8b460db93b053c9d3b14b46a039742bd26b91dcd742a827ef0c7"
+          }
+        }
+      }
+    ],
+    "ranking": [
+      {
+        "rank": 1,
+        "video": {
+          "index": 2,
+          "source_image_index": 2,
+          "brief": {
+            "index": 2,
+            "design_point": {
+              "index": 2,
+              "angle": "low_angle",
+              "lighting": "high_key",
+              "composition": "product_foreground",
+              "motion": "slow_dolly_out",
+              "seed": 2
+            },
+            "image_prompt": "Advertising photograph for Sujal's Shoes.\n\nREFERENCES \u2014 preserve these exactly:\nImage 1 is the human model. Preserve the model's face, skin tone, hair and body proportions exactly as shown. Do not restyle the face.\nImage 2 is the product. Preserve its exact shape, colour, proportions, label text and finish. The product must be immediately recognisable as the same item.\n\nSHOT:\n- shot from a low angle looking slightly up, making the subject dominant\n- bright high-key lighting, minimal shadow, airy and clean\n- product prominent in the foreground, subject softly behind it\n- smooth soft colour gradient backdrop\n\nLOOK:\n- Mood: calm, premium, understated and expensive-looking\n- Colour palette: #d3d2dd, #271959, #63568b, #b1a9d7, #100831\n- Format: 9:16 vertical-safe framing for instagram reels\n\nCONSTRAINTS:\n- Keep the product and the model's face clear of the top 14% and bottom 20% of the frame, which platform UI covers.\n- The product must be fully visible and unobstructed.\n- Photorealistic commercial photography. No text overlays, captions or graphic elements \u2014 those are composited later.\n\nADDITIONAL DIRECTION: the shoes should be in the hands of the human model or pointing the direction towards the shoes",
+            "negative_prompt": "distorted face, extra fingers, malformed hands, warped product label, duplicated product, unreadable text, watermark, logo artefacts, blurry product, cropped product",
+            "motion_prompt": "slow smooth dolly out revealing more of the scene. The product stays clearly visible and in focus throughout. Preserve the model's identity and the product's exact appearance across every frame. Overall feel: calm, premium, understated and expensive-looking. Duration 8 seconds, single continuous shot, no cuts.",
+            "concept": "Shot from a low angle looking slightly up with bright high-key lighting, product prominent in the foreground."
+          },
+          "asset": {
+            "key": "generations/2f3f23c2963049c6/vid_2.mp4",
+            "url": "/media/generations/2f3f23c2963049c6/vid_2.mp4",
+            "mime_type": "video/mp4",
+            "width": null,
+            "height": null,
+            "sha256": "37f372289502bacf8a6820f2071e56a6ad7abe05fa79bcadc1d569caa76cdd32"
+          },
+          "duration_seconds": 10.041667,
+          "fps": 24,
+          "tier": "premium",
+          "provider": "kling-2.5-turbo-pro",
+          "seed": 2,
+          "cost_usd": 0.7,
+          "latency_ms": 103117,
+          "created_at": "2026-08-20T09:09:57.520872Z",
+          "was_chained": false,
+          "seam_consistency": null,
+          "requested_duration_seconds": 8.0,
+          "seed_honoured": false,
+          "score": {
+            "overall": 0.7639,
+            "aesthetic": 1.0,
+            "prompt_alignment": null,
+            "product_salience": null,
+            "composition": null,
+            "palette_adherence": null,
+            "temporal_consistency": 0.9806,
+            "motion_quality": 1.0,
+            "hook_strength": 0.3231,
+            "product_screen_time": 1.0,
+            "safe_area_compliance": 0.7082,
+            "model_version": "heuristic-0",
+            "is_stub": true
+          },
+          "thumbnail": {
+            "key": "generations/2f3f23c2963049c6/img_2.png",
+            "url": "/media/generations/2f3f23c2963049c6/img_2.png",
+            "mime_type": "image/jpeg",
+            "width": 1920,
+            "height": 3416,
+            "sha256": "7e457d6aeb30f8749b986a828d5d4f9718b10bcbd591e17d2566dfb348945db2"
+          },
+          "platform_renders": {
+            "9:16": {
+              "key": "delivery/2f3f23c2963049c6/2_9x16.mp4",
+              "url": "/media/delivery/2f3f23c2963049c6/2_9x16.mp4",
+              "mime_type": "video/mp4",
+              "width": 404,
+              "height": 720,
+              "sha256": "b6f050dd782f1f2103181cbbbe89250cb5193806dc3939cb9c0d7e8b51bd0038"
+            },
+            "4:5": {
+              "key": "delivery/2f3f23c2963049c6/2_4x5.mp4",
+              "url": "/media/delivery/2f3f23c2963049c6/2_4x5.mp4",
+              "mime_type": "video/mp4",
+              "width": 576,
+              "height": 720,
+              "sha256": "d761d9830d5838f0423f3f9a78774302e45297631fdeaf65a486716418099917"
+            },
+            "16:9": {
+              "key": "delivery/2f3f23c2963049c6/2_16x9.mp4",
+              "url": "/media/delivery/2f3f23c2963049c6/2_16x9.mp4",
+              "mime_type": "video/mp4",
+              "width": 720,
+              "height": 404,
+              "sha256": "6313c87f9b4a8b460db93b053c9d3b14b46a039742bd26b91dcd742a827ef0c7"
+            }
+          }
+        },
+        "explanation": "Ranked #1 \u2014 opens strongly in the first second (32%, best of the set). Weakest on keeps key content clear of platform UI (71%). The image-stage prediction placed it here too. (Heuristic baseline \u2014 the trained predictor has not replaced it yet.)",
+        "image_stage_rank": 1
+      },
+      {
+        "rank": 2,
+        "video": {
+          "index": 1,
+          "source_image_index": 1,
+          "brief": {
+            "index": 1,
+            "design_point": {
+              "index": 1,
+              "angle": "high_angle",
+              "lighting": "rim_backlit",
+              "composition": "centered_hero",
+              "motion": "static_subtle",
+              "seed": 1
+            },
+            "image_prompt": "Advertising photograph for Sujal's Shoes.\n\nREFERENCES \u2014 preserve these exactly:\nImage 1 is the human model. Preserve the model's face, skin tone, hair and body proportions exactly as shown. Do not restyle the face.\nImage 2 is the product. Preserve its exact shape, colour, proportions, label text and finish. The product must be immediately recognisable as the same item.\n\nSHOT:\n- shot from a slightly high angle looking down\n- rim backlighting separating the subject from the background, glowing edges\n- subject centred, symmetrical hero framing\n- smooth soft colour gradient backdrop\n\nLOOK:\n- Mood: calm, premium, understated and expensive-looking\n- Colour palette: #d3d2dd, #271959, #63568b, #b1a9d7, #100831\n- Format: 9:16 vertical-safe framing for instagram reels\n\nCONSTRAINTS:\n- Keep the product and the model's face clear of the top 14% and bottom 20% of the frame, which platform UI covers.\n- The product must be fully visible and unobstructed.\n- Photorealistic commercial photography. No text overlays, captions or graphic elements \u2014 those are composited later.\n\nADDITIONAL DIRECTION: the shoes should be in the hands of the human model or pointing the direction towards the shoes",
+            "negative_prompt": "distorted face, extra fingers, malformed hands, warped product label, duplicated product, unreadable text, watermark, logo artefacts, blurry product, cropped product",
+            "motion_prompt": "near-static frame with only subtle natural movement. The product stays clearly visible and in focus throughout. Preserve the model's identity and the product's exact appearance across every frame. Overall feel: calm, premium, understated and expensive-looking. Duration 8 seconds, single continuous shot, no cuts.",
+            "concept": "Shot from a slightly high angle looking down with rim backlighting separating the subject from the background, subject centred."
+          },
+          "asset": {
+            "key": "generations/2f3f23c2963049c6/vid_1.mp4",
+            "url": "/media/generations/2f3f23c2963049c6/vid_1.mp4",
+            "mime_type": "video/mp4",
+            "width": null,
+            "height": null,
+            "sha256": "c4dcb2638fe5194b23523eb25d825aa917b0129dbaafbebceed89405a6f534e4"
+          },
+          "duration_seconds": 10.041667,
+          "fps": 24,
+          "tier": "premium",
+          "provider": "kling-2.5-turbo-pro",
+          "seed": 1,
+          "cost_usd": 0.7,
+          "latency_ms": 116008,
+          "created_at": "2026-08-20T09:08:13.924989Z",
+          "was_chained": false,
+          "seam_consistency": null,
+          "requested_duration_seconds": 8.0,
+          "seed_honoured": false,
+          "score": {
+            "overall": 0.7591,
+            "aesthetic": 1.0,
+            "prompt_alignment": null,
+            "product_salience": null,
+            "composition": null,
+            "palette_adherence": null,
+            "temporal_consistency": 0.9937,
+            "motion_quality": 1.0,
+            "hook_strength": 0.2553,
+            "product_screen_time": 1.0,
+            "safe_area_compliance": 0.8374,
+            "model_version": "heuristic-0",
+            "is_stub": true
+          },
+          "thumbnail": {
+            "key": "generations/2f3f23c2963049c6/img_1.png",
+            "url": "/media/generations/2f3f23c2963049c6/img_1.png",
+            "mime_type": "image/jpeg",
+            "width": 1920,
+            "height": 3416,
+            "sha256": "8935f0e9215bf95cfcd9f308d07d112f4fd8b4faebea143d3cc9b7e5e33587c1"
+          },
+          "platform_renders": {
+            "9:16": {
+              "key": "generations/2f3f23c2963049c6/vid_1.mp4",
+              "url": "/media/generations/2f3f23c2963049c6/vid_1.mp4",
+              "mime_type": "video/mp4",
+              "width": null,
+              "height": null,
+              "sha256": "c4dcb2638fe5194b23523eb25d825aa917b0129dbaafbebceed89405a6f534e4"
+            }
+          }
+        },
+        "explanation": "Ranked #2 \u2014 keeps key content clear of platform UI (84%, best of the set). Weakest on opens strongly in the first second (26%). Moved up 1 place(s) from the image-stage prediction once animated. (Heuristic baseline \u2014 the trained predictor has not replaced it yet.)",
+        "image_stage_rank": 3
+      },
+      {
+        "rank": 3,
+        "video": {
+          "index": 0,
+          "source_image_index": 0,
+          "brief": {
+            "index": 0,
+            "design_point": {
+              "index": 0,
+              "angle": "profile",
+              "lighting": "soft_diffused",
+              "composition": "rule_of_thirds_left",
+              "motion": "slow_dolly_in",
+              "seed": 0
+            },
+            "image_prompt": "Advertising photograph for Sujal's Shoes.\n\nREFERENCES \u2014 preserve these exactly:\nImage 1 is the human model. Preserve the model's face, skin tone, hair and body proportions exactly as shown. Do not restyle the face.\nImage 2 is the product. Preserve its exact shape, colour, proportions, label text and finish. The product must be immediately recognisable as the same item.\n\nSHOT:\n- side profile view of the subject\n- soft diffused studio lighting, gentle even shadows\n- subject on the left third, open space to the right\n- smooth soft colour gradient backdrop\n\nLOOK:\n- Mood: calm, premium, understated and expensive-looking\n- Colour palette: #d3d2dd, #271959, #63568b, #b1a9d7, #100831\n- Format: 9:16 vertical-safe framing for instagram reels\n\nCONSTRAINTS:\n- Keep the product and the model's face clear of the top 14% and bottom 20% of the frame, which platform UI covers.\n- The product must be fully visible and unobstructed.\n- Photorealistic commercial photography. No text overlays, captions or graphic elements \u2014 those are composited later.\n\nADDITIONAL DIRECTION: the shoes should be in the hands of the human model or pointing the direction towards the shoes",
+            "negative_prompt": "distorted face, extra fingers, malformed hands, warped product label, duplicated product, unreadable text, watermark, logo artefacts, blurry product, cropped product",
+            "motion_prompt": "slow smooth dolly in toward the subject. The product stays clearly visible and in focus throughout. Preserve the model's identity and the product's exact appearance across every frame. Overall feel: calm, premium, understated and expensive-looking. Duration 8 seconds, single continuous shot, no cuts.",
+            "concept": "Side profile view of the subject with soft diffused studio lighting, subject on the left third."
+          },
+          "asset": {
+            "key": "generations/2f3f23c2963049c6/vid_0.mp4",
+            "url": "/media/generations/2f3f23c2963049c6/vid_0.mp4",
+            "mime_type": "video/mp4",
+            "width": null,
+            "height": null,
+            "sha256": "1121a1d64ecdd435f9df4a3caa8b277265caa4789ec5381b09db34678cff8818"
+          },
+          "duration_seconds": 10.041667,
+          "fps": 24,
+          "tier": "premium",
+          "provider": "kling-2.5-turbo-pro",
+          "seed": 0,
+          "cost_usd": 0.7,
+          "latency_ms": 129785,
+          "created_at": "2026-08-20T09:06:17.330641Z",
+          "was_chained": false,
+          "seam_consistency": null,
+          "requested_duration_seconds": 8.0,
+          "seed_honoured": false,
+          "score": {
+            "overall": 0.7521,
+            "aesthetic": 1.0,
+            "prompt_alignment": null,
+            "product_salience": null,
+            "composition": null,
+            "palette_adherence": null,
+            "temporal_consistency": 0.9929,
+            "motion_quality": 1.0,
+            "hook_strength": 0.2527,
+            "product_screen_time": 1.0,
+            "safe_area_compliance": 0.7774,
+            "model_version": "heuristic-0",
+            "is_stub": true
+          },
+          "thumbnail": {
+            "key": "generations/2f3f23c2963049c6/img_0.png",
+            "url": "/media/generations/2f3f23c2963049c6/img_0.png",
+            "mime_type": "image/jpeg",
+            "width": 1920,
+            "height": 3416,
+            "sha256": "49d13543ebee42c667192d64867c5dd67b018114c3c15273cd2296fb142b1a8e"
+          },
+          "platform_renders": {
+            "9:16": {
+              "key": "generations/2f3f23c2963049c6/vid_0.mp4",
+              "url": "/media/generations/2f3f23c2963049c6/vid_0.mp4",
+              "mime_type": "video/mp4",
+              "width": null,
+              "height": null,
+              "sha256": "1121a1d64ecdd435f9df4a3caa8b277265caa4789ec5381b09db34678cff8818"
+            }
+          }
+        },
+        "explanation": "Ranked #3 \u2014 scored within noise of the other candidates on every measured component. Weakest on opens strongly in the first second (25%). Moved down 1 place(s) from the image-stage prediction once animated. (Heuristic baseline \u2014 the trained predictor has not replaced it yet.)",
+        "image_stage_rank": 2
+      }
+    ],
+    "delivery": {
+      "renders": [
+        {
+          "aspect_ratio": "9:16",
+          "asset": {
+            "key": "delivery/2f3f23c2963049c6/2_9x16.mp4",
+            "url": "/media/delivery/2f3f23c2963049c6/2_9x16.mp4",
+            "mime_type": "video/mp4",
+            "width": 404,
+            "height": 720,
+            "sha256": "b6f050dd782f1f2103181cbbbe89250cb5193806dc3939cb9c0d7e8b51bd0038"
+          },
+          "mode": "none",
+          "width": 404,
+          "height": 720,
+          "retained_salience": 1.0,
+          "centre_crop_salience": null,
+          "tracking_gain": 0.0,
+          "note": "source is already within a rounding error of the target ratio"
+        },
+        {
+          "aspect_ratio": "4:5",
+          "asset": {
+            "key": "delivery/2f3f23c2963049c6/2_4x5.mp4",
+            "url": "/media/delivery/2f3f23c2963049c6/2_4x5.mp4",
+            "mime_type": "video/mp4",
+            "width": 576,
+            "height": 720,
+            "sha256": "d761d9830d5838f0423f3f9a78774302e45297631fdeaf65a486716418099917"
+          },
+          "mode": "crop",
+          "width": 576,
+          "height": 720,
+          "retained_salience": 0.9681,
+          "centre_crop_salience": 0.0,
+          "tracking_gain": 0.0,
+          "note": ""
+        },
+        {
+          "aspect_ratio": "16:9",
+          "asset": {
+            "key": "delivery/2f3f23c2963049c6/2_16x9.mp4",
+            "url": "/media/delivery/2f3f23c2963049c6/2_16x9.mp4",
+            "mime_type": "video/mp4",
+            "width": 720,
+            "height": 404,
+            "sha256": "6313c87f9b4a8b460db93b053c9d3b14b46a039742bd26b91dcd742a827ef0c7"
+          },
+          "mode": "pad",
+          "width": 720,
+          "height": 404,
+          "retained_salience": 0.6342,
+          "centre_crop_salience": 0.0,
+          "tracking_gain": 0.0021,
+          "note": "a crop would discard 37% of the salient content, so the frame is letterboxed instead"
+        }
+      ],
+      "previews": {
+        "instagram_reels": {
+          "key": "delivery/2f3f23c2963049c6/preview_instagram_reels.png",
+          "url": "/media/delivery/2f3f23c2963049c6/preview_instagram_reels.png",
+          "mime_type": "image/png",
+          "width": null,
+          "height": null,
+          "sha256": "9869b935a01c5662b4d25175231055908419487e47ccb5112cb902c048124c40"
+        },
+        "instagram_feed": {
+          "key": "delivery/2f3f23c2963049c6/preview_instagram_feed.png",
+          "url": "/media/delivery/2f3f23c2963049c6/preview_instagram_feed.png",
+          "mime_type": "image/png",
+          "width": null,
+          "height": null,
+          "sha256": "31a80c7cbd122afa51d55d74c3eb509aec03dd0f136ec866aaf1930ccf51897f"
+        },
+        "youtube_shorts": {
+          "key": "delivery/2f3f23c2963049c6/preview_youtube_shorts.png",
+          "url": "/media/delivery/2f3f23c2963049c6/preview_youtube_shorts.png",
+          "mime_type": "image/png",
+          "width": null,
+          "height": null,
+          "sha256": "c803255ccb4bf08aa6d77253679d86645e3dd1b850c91bdd147c2d3386e88e05"
+        }
+      },
+      "audio": {
+        "attached": false,
+        "credit": "",
+        "licence": "",
+        "target_lufs": null,
+        "measured_lufs": null,
+        "has_voiceover": false,
+        "is_test_signal": false,
+        "note": "no music bed supplied. adml.audio.AudioBed requires a recorded licence, and this project ships no audio content; pass a bed to enable the mix."
+      },
+      "bundle": {
+        "key": "delivery/2f3f23c2963049c6/bundle.zip",
+        "url": "/media/delivery/2f3f23c2963049c6/bundle.zip",
+        "mime_type": "application/zip",
+        "width": null,
+        "height": null,
+        "sha256": "b7eb03a2f1a4314684cf8ddc582fb092ad4c936da062f16934381e8947d268cd"
+      },
+      "warnings": [
+        "16:9 keeps only 63% of the salient content \u2014 check the product survived the reframe"
+      ]
+    },
+    "total_cost_usd": 2.2199999999999998
+  },
+  "events": [
+    {
+      "job_id": "2f3f23c2963049c6",
+      "stage": "intake",
+      "state": "started",
+      "message": "validating inputs and rights",
+      "progress": 0.0,
+      "at": "2026-08-20T09:01:32.494853Z"
+    },
+    {
+      "job_id": "2f3f23c2963049c6",
+      "stage": "intake",
+      "state": "progress",
+      "message": "product cutout: rembg is not installed (pip install '.[intake]'); used the flood-fill fallback, which the backdrop is flat enough for (uniformity 0.79); kept 35.4% of the frame as product",
+      "progress": 0.4,
+      "at": "2026-08-20T09:01:33.465873Z"
+    },
+    {
+      "job_id": "2f3f23c2963049c6",
+      "stage": "intake",
+      "state": "progress",
+      "message": "face: 1 frontal face(s); largest covers 2.4% of the frame. Box retained for the ArcFace identity crop in the Colab work.",
+      "progress": 0.6,
+      "at": "2026-08-20T09:01:33.466921Z"
+    },
+    {
+      "job_id": "2f3f23c2963049c6",
+      "stage": "intake",
+      "state": "progress",
+      "message": "brand palette derived from the product cutout: #d3d2dd #271959 #63568b #b1a9d7 #100831",
+      "progress": 0.8,
+      "at": "2026-08-20T09:01:33.467568Z"
+    },
+    {
+      "job_id": "2f3f23c2963049c6",
+      "stage": "intake",
+      "state": "progress",
+      "message": "note \u2014 product: small upload (414x483); 512px or more on the short edge gives the generator noticeably more to work from",
+      "progress": 0.9,
+      "at": "2026-08-20T09:01:33.468278Z"
+    },
+    {
+      "job_id": "2f3f23c2963049c6",
+      "stage": "intake",
+      "state": "completed",
+      "message": "2 reference(s) accepted",
+      "progress": 1.0,
+      "at": "2026-08-20T09:01:33.468755Z"
+    },
+    {
+      "job_id": "2f3f23c2963049c6",
+      "stage": "brief",
+      "state": "started",
+      "message": "sampling the design space",
+      "progress": 0.0,
+      "at": "2026-08-20T09:01:33.469236Z"
+    },
+    {
+      "job_id": "2f3f23c2963049c6",
+      "stage": "brief",
+      "state": "completed",
+      "message": "3 briefs, min pairwise distance 4/4",
+      "progress": 1.0,
+      "at": "2026-08-20T09:01:33.470421Z"
+    },
+    {
+      "job_id": "2f3f23c2963049c6",
+      "stage": "image_gen",
+      "state": "started",
+      "message": "generating 3 candidates",
+      "progress": 0.0,
+      "at": "2026-08-20T09:01:33.471029Z"
+    },
+    {
+      "job_id": "2f3f23c2963049c6",
+      "stage": "image_gen",
+      "state": "progress",
+      "message": "candidate 1/3 done",
+      "progress": 0.3333333333333333,
+      "at": "2026-08-20T09:02:27.702178Z"
+    },
+    {
+      "job_id": "2f3f23c2963049c6",
+      "stage": "image_gen",
+      "state": "progress",
+      "message": "candidate 2/3 done",
+      "progress": 0.6666666666666666,
+      "at": "2026-08-20T09:03:14.777568Z"
+    },
+    {
+      "job_id": "2f3f23c2963049c6",
+      "stage": "image_gen",
+      "state": "progress",
+      "message": "candidate 3/3 done",
+      "progress": 1.0,
+      "at": "2026-08-20T09:04:04.806819Z"
+    },
+    {
+      "job_id": "2f3f23c2963049c6",
+      "stage": "image_gen",
+      "state": "completed",
+      "message": "3 candidate frame(s) generated",
+      "progress": 1.0,
+      "at": "2026-08-20T09:04:04.808753Z"
+    },
+    {
+      "job_id": "2f3f23c2963049c6",
+      "stage": "quality_gate",
+      "state": "completed",
+      "message": "3/3 candidates passed quality control",
+      "progress": 1.0,
+      "at": "2026-08-20T09:04:04.809278Z"
+    },
+    {
+      "job_id": "2f3f23c2963049c6",
+      "stage": "image_rank",
+      "state": "started",
+      "message": "predicting performance from the still frames",
+      "progress": 0.0,
+      "at": "2026-08-20T09:04:04.809761Z"
+    },
+    {
+      "job_id": "2f3f23c2963049c6",
+      "stage": "image_rank",
+      "state": "progress",
+      "message": "scored by pairwise-linear-20260811 | 36 features | held-out 0.496 (95% CI low 0.441) of 0.779 ceiling | DOES NOT BEAT CHANCE",
+      "progress": 0.5,
+      "at": "2026-08-20T09:04:07.532316Z"
+    },
+    {
+      "job_id": "2f3f23c2963049c6",
+      "stage": "image_rank",
+      "state": "completed",
+      "message": "predicted order before animation: C > A > B",
+      "progress": 1.0,
+      "at": "2026-08-20T09:04:07.541436Z"
+    },
+    {
+      "job_id": "2f3f23c2963049c6",
+      "stage": "video_gen",
+      "state": "started",
+      "message": "animating 3 candidates at 8s \u2014 native, delivered at 10s \u2014 kling-2.5-turbo-pro offers fixed durations only",
+      "progress": 0.0,
+      "at": "2026-08-20T09:04:07.542276Z"
+    },
+    {
+      "job_id": "2f3f23c2963049c6",
+      "stage": "video_gen",
+      "state": "progress",
+      "message": "candidate 0: 10.04s measured, in the 8-10s window",
+      "progress": 0.0,
+      "at": "2026-08-20T09:06:17.790291Z"
+    },
+    {
+      "job_id": "2f3f23c2963049c6",
+      "stage": "video_gen",
+      "state": "progress",
+      "message": "video 1/3 done",
+      "progress": 0.3333333333333333,
+      "at": "2026-08-20T09:06:17.792566Z"
+    },
+    {
+      "job_id": "2f3f23c2963049c6",
+      "stage": "video_gen",
+      "state": "progress",
+      "message": "candidate 1: 10.04s measured, in the 8-10s window",
+      "progress": 0.0,
+      "at": "2026-08-20T09:08:14.394357Z"
+    },
+    {
+      "job_id": "2f3f23c2963049c6",
+      "stage": "video_gen",
+      "state": "progress",
+      "message": "video 2/3 done",
+      "progress": 0.6666666666666666,
+      "at": "2026-08-20T09:08:14.398027Z"
+    },
+    {
+      "job_id": "2f3f23c2963049c6",
+      "stage": "video_gen",
+      "state": "progress",
+      "message": "candidate 2: 10.04s measured, in the 8-10s window",
+      "progress": 0.0,
+      "at": "2026-08-20T09:09:58.075546Z"
+    },
+    {
+      "job_id": "2f3f23c2963049c6",
+      "stage": "video_gen",
+      "state": "progress",
+      "message": "video 3/3 done",
+      "progress": 1.0,
+      "at": "2026-08-20T09:09:58.080010Z"
+    },
+    {
+      "job_id": "2f3f23c2963049c6",
+      "stage": "video_gen",
+      "state": "completed",
+      "message": "3 videos generated",
+      "progress": 1.0,
+      "at": "2026-08-20T09:09:58.080593Z"
+    },
+    {
+      "job_id": "2f3f23c2963049c6",
+      "stage": "video_rank",
+      "state": "started",
+      "message": "scoring the animated candidates",
+      "progress": 0.0,
+      "at": "2026-08-20T09:09:58.081143Z"
+    },
+    {
+      "job_id": "2f3f23c2963049c6",
+      "stage": "video_rank",
+      "state": "completed",
+      "message": "winner: candidate C",
+      "progress": 1.0,
+      "at": "2026-08-20T09:09:59.272792Z"
+    },
+    {
+      "job_id": "2f3f23c2963049c6",
+      "stage": "delivery",
+      "state": "started",
+      "message": "preparing platform renders",
+      "progress": 0.0,
+      "at": "2026-08-20T09:09:59.275907Z"
+    },
+    {
+      "job_id": "2f3f23c2963049c6",
+      "stage": "delivery",
+      "state": "progress",
+      "message": "9:16: none, keeps 100% of the salient content",
+      "progress": 0.6,
+      "at": "2026-08-20T09:10:04.524285Z"
+    },
+    {
+      "job_id": "2f3f23c2963049c6",
+      "stage": "delivery",
+      "state": "progress",
+      "message": "4:5: crop, keeps 97% of the salient content where a centre crop would keep 0%",
+      "progress": 0.6,
+      "at": "2026-08-20T09:10:04.525737Z"
+    },
+    {
+      "job_id": "2f3f23c2963049c6",
+      "stage": "delivery",
+      "state": "progress",
+      "message": "16:9: pad, keeps 63% of the salient content where a centre crop would keep 0%",
+      "progress": 0.6,
+      "at": "2026-08-20T09:10:04.526253Z"
+    },
+    {
+      "job_id": "2f3f23c2963049c6",
+      "stage": "delivery",
+      "state": "warning",
+      "message": "16:9 keeps only 63% of the salient content \u2014 check the product survived the reframe",
+      "progress": 0.8,
+      "at": "2026-08-20T09:10:04.526727Z"
+    },
+    {
+      "job_id": "2f3f23c2963049c6",
+      "stage": "delivery",
+      "state": "completed",
+      "message": "3 renders, 3 previews, worst reframe 16:9 at 63% salience via pad, 1 warning(s)",
+      "progress": 1.0,
+      "at": "2026-08-20T09:10:04.527198Z"
+    }
+  ],
+  "error": null,
+  "refusal_reason": null,
+  "started_at": "2026-08-20T09:01:32.493985Z",
+  "finished_at": "2026-08-20T09:10:04.527681Z"
+}

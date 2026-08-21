@@ -130,18 +130,31 @@ def _motion_offset(motion: MotionIntent, t: float) -> tuple[float, float, float]
 
     Each intent produces a different optical-flow signature, which is exactly
     what the video-stage motion features need in order to be testable.
+
+    Worth being blunt about the limit of this stand-in: the renderer moves a flat
+    frame, so it can only ever express *camera* motion.  Every intent now names a
+    human action, and none of that is representable here.  These are flow
+    signatures chosen to stay distinguishable from one another, not previews of
+    what a real generation looks like — which is why the motion thresholds in the
+    quality gate have to be recalibrated against paid clips rather than these.
     """
-    if motion is MotionIntent.SLOW_DOLLY_IN:
+    if motion is MotionIntent.PRODUCT_REVEAL:
+        # Something rising into frame while the camera closes in.
+        return 0.0, -0.06 * t, 1.0 + 0.10 * t
+    if motion is MotionIntent.HERO_TURN:
+        # Lateral swing, camera locked off.
+        return -0.08 * math.sin(math.pi * t), 0.0, 1.02
+    if motion is MotionIntent.IN_USE:
+        # Busy, small-amplitude hand-scale movement.
+        return 0.03 * math.sin(3 * math.pi * t), 0.02 * math.cos(2 * math.pi * t), 1.0 + 0.06 * t
+    if motion is MotionIntent.OFFER_TO_CAMERA:
+        # The product grows in frame; the camera itself does not move.
         return 0.0, 0.0, 1.0 + 0.18 * t
-    if motion is MotionIntent.SLOW_DOLLY_OUT:
-        return 0.0, 0.0, 1.18 - 0.18 * t
-    if motion is MotionIntent.ORBIT_LEFT:
-        return -0.10 * math.sin(math.pi * t), 0.0, 1.04
-    if motion is MotionIntent.PRODUCT_PRESENT:
-        return 0.03 * math.sin(2 * math.pi * t), -0.05 * t, 1.0 + 0.10 * t
-    if motion is MotionIntent.HANDHELD_DRIFT:
-        return 0.02 * math.sin(5 * math.pi * t), 0.015 * math.cos(4 * math.pi * t), 1.02
-    return 0.004 * math.sin(2 * math.pi * t), 0.0, 1.005
+    if motion is MotionIntent.PICK_UP:
+        # Down to the surface, then up and in with the hands.
+        return 0.02 * t, 0.07 * math.sin(math.pi * t) - 0.04 * t, 1.0 + 0.08 * t
+    # WALK_IN: stride bob against a slow pull-back.
+    return 0.02 * math.sin(4 * math.pi * t), 0.01 * math.cos(4 * math.pi * t), 1.14 - 0.12 * t
 
 
 def _render_frame(
@@ -152,7 +165,7 @@ def _render_frame(
     composition: Composition,
     label: str,
     t: float = 0.0,
-    motion: MotionIntent = MotionIntent.STATIC_SUBTLE,
+    motion: MotionIntent = MotionIntent.HERO_TURN,
     rng_seed: int = 0,
 ) -> Image.Image:
     """Draw one synthetic ad frame.

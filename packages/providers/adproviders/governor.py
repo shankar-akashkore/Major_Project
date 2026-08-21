@@ -9,7 +9,9 @@ deliberately strict:
   :class:`BudgetExceeded`; it never quietly returns a lower-quality result,
   because a silent downgrade is a bug you discover in the write-up.
 * It **checks before every call**, not once per job, and counts in-flight
-  reservations as spent.
+  reservations as spent.  The check and the reservation are taken under one
+  lock, because the pipeline runs slots concurrently and a budget check that
+  can be read by four callers before any of them writes is not a check.
 * It **caps retries per slot**, so a candidate that keeps failing the quality
   gate costs at most two generations.
 * It **serves the cache first**, so an identical resubmission is free.
@@ -19,6 +21,7 @@ deliberately strict:
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 from collections.abc import Awaitable, Callable
@@ -75,6 +78,20 @@ class CostGovernor:
         #: be in the ledger.
         self.use_cache = use_cache
         self._attempts: dict[str, int] = {}
+        #: Serialises the check-and-reserve section of :meth:`guarded_call`.
+        #:
+        #: The docstring above promises that in-flight reservations count as spent.
+        #: That was true while the pipeline generated one slot at a time and stopped
+        #: being true the moment it stopped: ``status()`` awaits the database, which
+        #: yields, so four concurrent callers could each read the same total, each
+        #: conclude they fit under the cap, and each reserve. The overshoot is
+        #: bounded by (concurrency - 1) x the estimate — $2.10 of unbudgeted video on
+        #: a $2.50 cap, which is the entire failure the governor exists to prevent.
+        #:
+        #: The provider call stays *outside* the lock. Only the arithmetic is
+        #: serialised, so the concurrency this protects is not the concurrency it
+        #: would otherwise destroy.
+        self._reserve_lock = asyncio.Lock()
 
     # --- Budget introspection ------------------------------------------------
 
@@ -170,33 +187,34 @@ class CostGovernor:
                 )
             return await call()
 
-        status = await self.status()
-        if not status.can_afford(estimated_usd):
-            raise BudgetExceeded(estimated_usd, status, scope="total budget")
+        async with self._reserve_lock:
+            status = await self.status()
+            if not status.can_afford(estimated_usd):
+                raise BudgetExceeded(estimated_usd, status, scope="total budget")
 
-        job_so_far = await self.ledger.job_spent(job_id)
-        if job_so_far + estimated_usd > self.settings.budget_per_job_usd:
-            raise BudgetExceeded(
-                estimated_usd,
-                BudgetStatus(
-                    total_budget_usd=self.settings.budget_per_job_usd,
-                    spent_usd=job_so_far,
-                    per_job_cap_usd=self.settings.budget_per_job_usd,
-                ),
-                scope=f"per-job cap for {job_id}",
+            job_so_far = await self.ledger.job_spent(job_id)
+            if job_so_far + estimated_usd > self.settings.budget_per_job_usd:
+                raise BudgetExceeded(
+                    estimated_usd,
+                    BudgetStatus(
+                        total_budget_usd=self.settings.budget_per_job_usd,
+                        spent_usd=job_so_far,
+                        per_job_cap_usd=self.settings.budget_per_job_usd,
+                    ),
+                    scope=f"per-job cap for {job_id}",
+                )
+
+            entry = SpendEntry(
+                job_id=job_id,
+                provider=provider,
+                operation=operation,
+                model=model,
+                quantity=quantity,
+                unit_cost_usd=round(estimated_usd / quantity, 6) if quantity else 0.0,
+                cost_usd=estimated_usd,
+                note=note,
             )
-
-        entry = SpendEntry(
-            job_id=job_id,
-            provider=provider,
-            operation=operation,
-            model=model,
-            quantity=quantity,
-            unit_cost_usd=round(estimated_usd / quantity, 6) if quantity else 0.0,
-            cost_usd=estimated_usd,
-            note=note,
-        )
-        entry_id = await self.ledger.reserve(entry, estimated_usd)
+            entry_id = await self.ledger.reserve(entry, estimated_usd)
 
         try:
             result = await call()

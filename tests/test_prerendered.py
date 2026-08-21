@@ -36,7 +36,7 @@ def research_corpus(storage, clip_bytes, references):
     """A manifest and one clip, laid out the way the notebook's zip would be."""
     human, _ = references
     digest = hashlib.sha256(storage.get_bytes(human.key)).hexdigest()
-    fingerprint = P.clip_fingerprint(digest, MotionIntent.SLOW_DOLLY_IN.value, 9.0)
+    fingerprint = P.clip_fingerprint(digest, MotionIntent.PRODUCT_REVEAL.value, 9.0)
 
     storage.put_bytes("research/item-0.mp4", clip_bytes, "video/mp4")
     manifest = {
@@ -85,7 +85,7 @@ def dolly_brief():
             angle=CameraAngle.EYE_LEVEL,
             lighting=Lighting.SOFT_DIFFUSED,
             composition=Composition.CENTERED_HERO,
-            motion=MotionIntent.SLOW_DOLLY_IN,
+            motion=MotionIntent.PRODUCT_REVEAL,
             background=BackgroundTreatment.SOFT_GRADIENT,
         ),
         image_prompt="a prompt",
@@ -105,11 +105,11 @@ def test_the_notebook_fingerprint_matches_the_provider():
     silently missing every lookup after four hours of GPU time.
     """
     payload = json.dumps(
-        {"start": "abc123", "motion": "slow_dolly_in", "duration": 9.0},
+        {"start": "abc123", "motion": "product_reveal", "duration": 9.0},
         sort_keys=True,
     )
     expected = hashlib.sha256(payload.encode("utf-8")).hexdigest()[:32]
-    assert P.clip_fingerprint("abc123", "slow_dolly_in", 9.0) == expected
+    assert P.clip_fingerprint("abc123", "product_reveal", 9.0) == expected
 
 
 def test_the_fingerprint_uses_the_motion_intent_not_the_prompt_text(research_corpus, dolly_brief):
@@ -130,8 +130,8 @@ def test_the_fingerprint_uses_the_motion_intent_not_the_prompt_text(research_cor
 
 
 def test_duration_rounding_does_not_split_one_request_in_two():
-    a = P.clip_fingerprint("d", "static_subtle", 9.0)
-    b = P.clip_fingerprint("d", "static_subtle", 9.0000001)
+    a = P.clip_fingerprint("d", "hero_turn", 9.0)
+    b = P.clip_fingerprint("d", "hero_turn", 9.0000001)
     assert a == b
 
 

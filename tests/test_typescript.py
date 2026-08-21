@@ -197,10 +197,16 @@ def test_constraints_are_stated_for_whoever_builds_the_input(contract: str) -> N
     """A form that lets someone ask for a 4-second video has moved a constraint
     the schema already knows about into a 422 the user has to read."""
     block = _interface(contract, "AdJobRequest")
-    # Appended in parentheses where the field also has a description...
+    # Appended in parentheses where the field also has a description.
     assert "range 8.0–10.0" in block
-    # ...and standing alone, sentence-cased, where it does not.
-    assert "Range 1–6." in block
+    assert "range 1–6" in block, "the candidate and video counts are bounded"
+    assert "at least 0" in block
+
+    # Standing alone, sentence-cased, where the field has no description. This
+    # used to be asserted on `candidate_count`, which has since gained one — so it
+    # is checked where the form still actually occurs rather than dropped, since
+    # what is under test is the generator's two renderings, not this one field.
+    assert "/** Range 0.0–1.0. */" in _interface(contract, "ScoreBreakdown")
 
 
 def test_docstring_markup_does_not_leak_into_jsdoc(contract: str) -> None:
@@ -214,7 +220,11 @@ def test_docstring_markup_does_not_leak_into_jsdoc(contract: str) -> None:
 def test_only_the_summary_line_of_a_docstring_is_carried(contract: str) -> None:
     """Twenty lines of design rationale belong in the Python file, not a tooltip."""
     block = _interface(contract, "AdJobRequest")
-    assert "Everything needed to run one 3-candidate ad job." in block
+    assert "Everything needed to run one ad job." in block
+    # The rest of the docstring explains why the candidate and video counts are
+    # separate fields. It is three paragraphs of rationale that belong in the
+    # Python source and nowhere near a TypeScript consumer.
+    assert "separate decisions" not in block
     assert "Aspect ratio is derived" not in block
 
 

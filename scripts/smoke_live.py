@@ -32,51 +32,58 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "packages" / "schema"))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "packages" / "providers"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "services" / "worker"))
 
 import adproviders as P  # noqa: E402
 from adschema import (  # noqa: E402
+    AdJobRequest,
     AspectRatio,
-    CameraAngle,
-    Composition,
-    DesignPoint,
-    Lighting,
-    MotionIntent,
+    AssetRef,
+    ConsentAttestation,
     ProviderMode,
     ShotBrief,
+    Vertical,
 )
+from adworker.briefs import compile_briefs  # noqa: E402
 
 SMOKE_DIR = "smoke"
 
 
-def _brief() -> ShotBrief:
-    return ShotBrief(
-        index=0,
-        design_point=DesignPoint(
-            index=0,
-            angle=CameraAngle.EYE_LEVEL,
-            lighting=Lighting.SOFT_DIFFUSED,
-            composition=Composition.CENTERED_HERO,
-            motion=MotionIntent.SLOW_DOLLY_IN,
-            seed=7,
-        ),
-        image_prompt=(
-            "Advertising photograph for a cosmetics bottle.\n\n"
-            "REFERENCES — preserve these exactly:\n"
-            "Image 1 is the human model. Preserve the model's face, skin tone, hair and "
-            "body proportions exactly as shown.\n"
-            "Image 2 is the product. Preserve its exact shape, colour, proportions and "
-            "finish. It must be immediately recognisable as the same item.\n\n"
-            "SHOT:\n- shot at eye level, camera square to the subject\n"
-            "- soft diffused studio lighting\n- subject centred, symmetrical hero framing\n\n"
-            "Photorealistic commercial photography. No text overlays."
-        ),
-        negative_prompt="distorted face, extra fingers, warped product label, watermark",
-        motion_prompt=(
-            "slow smooth dolly in toward the subject. The product stays clearly visible "
-            "and in focus throughout. Single continuous shot, no cuts."
-        ),
-        concept="Calm premium hero shot.",
+def _smoke_request() -> AdJobRequest:
+    """The request the brief is compiled from.
+
+    The references are placeholders — the smoke test hands the provider its own
+    generated assets directly. What this request is for is the *prompt*, and the
+    seed is fixed so the same design point comes out every run.
+    """
+    ref = AssetRef(key="smoke/placeholder.png", sha256="0" * 64)
+    return AdJobRequest(
+        job_id="smoke",
+        product_name="a cosmetics bottle",
+        vertical=Vertical.BEAUTY,
+        caption="Glow that lasts",
+        human_model_image=ref,
+        product_image=ref,
+        seed=7,
+        consent=ConsentAttestation(has_model_release=True, not_a_public_figure=True),
     )
+
+
+async def _brief() -> ShotBrief:
+    """The first candidate's brief, straight out of the real compiler.
+
+    This used to be a ShotBrief written out by hand here, including a motion prompt
+    reading "slow smooth dolly in toward the subject" — a sentence that appears
+    nowhere in the pipeline. That made the cheapest verification the project owns
+    test something the project does not send, and after the motion axis was
+    rewritten it would have gone on spending $0.35 to confirm the exact prompt that
+    caused the zoom problem in the first place.
+
+    Compiling through ``compile_briefs`` costs nothing (the mock LLM does not call
+    out) and means a $0.35 clip verifies the prompt a real job would send.
+    """
+    briefs = await compile_briefs(_smoke_request(), P.MockLLMProvider())
+    return briefs.briefs[0]
 
 
 async def _run(kind: str) -> int:
@@ -100,7 +107,7 @@ async def _run(kind: str) -> int:
     if kind == "image":
         provider = P.get_image_provider(settings, storage)
         request = P.ImageGenRequest(
-            brief=_brief(),
+            brief=await _brief(),
             references=[human, product],
             aspect_ratio=AspectRatio.VERTICAL_9_16,
             seed=7,
@@ -130,7 +137,12 @@ async def _run(kind: str) -> int:
         # question about the duration enum and the response shape.
         seconds = 5.0
         request = P.VideoGenRequest(
-            brief=_brief(),
+            # The compiled prompt says 9 s while this asks for 5, and that is
+            # left alone deliberately. `AdJobRequest` enforces the project's own
+            # 8-10 s window, so a 5 s brief is not expressible without weakening
+            # the schema to save $0.35 on a contract test. Kling takes duration
+            # as an explicit parameter; the sentence in the prompt is advisory.
+            brief=await _brief(),
             start_image=product,
             duration_seconds=seconds,
             aspect_ratio=AspectRatio.VERTICAL_9_16,

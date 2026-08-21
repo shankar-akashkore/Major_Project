@@ -71,11 +71,20 @@ def model_path() -> Path:
 #: the whole point of Stage B calibration is to replace them with weights learned
 #: from pairwise human preference.
 IMAGE_WEIGHTS = {
-    "aesthetic": 0.25,
-    "composition": 0.20,
-    "product_salience": 0.25,
+    "aesthetic": 0.30,
+    "composition": 0.25,
+    # Was 0.25, and pointing the wrong way at that weight.  ``focal_concentration``
+    # measures how much of the attention map one blob holds, which for a composite
+    # of a person and a product rises with the *size of the product*.  The first
+    # live iPhone job is the proof: the three candidates scored 0.45 / 0.40 / 0.32
+    # in exactly descending order of how oversized the handset was, so the ranker
+    # promoted the two worst frames and paid to animate them.  A quarter of the
+    # score was a gigantism gradient.  It keeps a small weight because "has a clear
+    # subject at all" is still worth something, and it is now banded (see
+    # ``_FOCUS_SWEET_SPOT``) so that satisfying it is not the same as maximising it.
+    "product_salience": 0.10,
     "palette_adherence": 0.15,
-    "safe_area_compliance": 0.15,
+    "safe_area_compliance": 0.20,
 }
 
 #: Video-stage blend.  Hook strength is weighted heavily on purpose: short-form ads
@@ -94,6 +103,23 @@ VIDEO_WEIGHTS = {
 _CONTRAST_SWEET_SPOT = (0.16, 0.30)
 #: Colourfulness band; too flat looks cheap, too saturated looks like a scam ad.
 _COLOR_SWEET_SPOT = (0.25, 0.65)
+
+#: Focal-concentration band.  Deliberately one-sided in practice.
+#:
+#: The floor is the part that means something: below it, attention is smeared and
+#: the viewer cannot tell what they are being sold.  Above it there is no further
+#: credit, which is the whole point of banding this — an unbounded reward for
+#: concentration is an unbounded reward for drawing the product bigger.
+#:
+#: The ceiling is set above every value either distribution has ever produced
+#: (real Seedream frames measure 0.33-0.45; the mock generator, which draws a
+#: synthetic hero blob, measures 0.58-0.73). So it fires on nothing observed and
+#: exists only to catch a genuinely degenerate frame that is one object and
+#: nothing else. It is *not* a scale check and must not be mistaken for one:
+#: card E of the first live job — a phone taller than the model — measured 0.45,
+#: which no ceiling that passes the mock corpus could ever catch. Measuring scale
+#: needs the product located in the frame, which arrives with ``product_identity``.
+_FOCUS_SWEET_SPOT = (0.30, 0.85)
 
 
 def _band_score(value: float, lo: float, hi: float, falloff: float = 0.18) -> float:
@@ -174,7 +200,7 @@ def score_image(
     parts: dict[str, float | None] = {
         "aesthetic": _aesthetic_proxy(contrast, colour),
         "composition": F.thirds_alignment(sal),
-        "product_salience": F.focal_concentration(sal),
+        "product_salience": _band_score(F.focal_concentration(sal), *_FOCUS_SWEET_SPOT),
         "palette_adherence": palette_score,
         "safe_area_compliance": F.region_saliency_share(sal, safe.top, safe.bottom),
     }
@@ -251,7 +277,7 @@ _LABELS = {
     "aesthetic": "reads as polished commercial photography",
     "safe_area_compliance": "keeps key content clear of platform UI",
     "composition": "sits well against rule-of-thirds framing",
-    "product_salience": "gives the product a clear focal point",
+    "product_salience": "has a clear focal subject rather than smeared attention",
     "palette_adherence": "stays close to the brand palette",
 }
 

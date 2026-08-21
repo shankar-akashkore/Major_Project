@@ -55,6 +55,12 @@ fixtures/golden/*.zip
 # worth keeping: the first image call did not save one, and the finding that
 # Seedream reports no dimensions at all was nearly lost to a terminal scrollback.
 fixtures/smoke/*
+# Music the user supplies. Ignored for the same reason generated media is, plus a
+# stronger one: a licensed track is licensed to *them*, and committing it to a
+# repository redistributes it. The sidecar is kept — the licence record is the
+# useful, shareable part.
+fixtures/audio/*
+!fixtures/audio/*.json
 !fixtures/smoke/raw_*.json
 
 # Trained rankers are small (a linear head over ~40 features is a few kB) but they

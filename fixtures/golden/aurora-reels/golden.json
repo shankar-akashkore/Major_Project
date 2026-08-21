@@ -2,7 +2,7 @@
   "version": 1,
   "slug": "aurora-reels",
   "title": "Aurora Serum",
-  "created_at": "2026-08-11T20:05:10+00:00",
+  "created_at": "2026-08-20T17:23:31+00:00",
   "provenance": {
     "provider_mode": "mock",
     "image_model": "mock",
@@ -14,14 +14,13 @@
       "frame on slot 0 came from the generation cache",
       "frame on slot 1 came from the generation cache",
       "frame on slot 2 came from the generation cache",
-      "clip on slot 0 came from the generation cache",
       "clip on slot 1 came from the generation cache",
-      "clip on slot 2 came from the generation cache"
+      "clip on slot 0 came from the generation cache"
     ]
   },
   "request": {
-    "job_id": "49bc33420ef4449e",
-    "created_at": "2026-08-11T20:05:07.955680Z",
+    "job_id": "631c12e144894278",
+    "created_at": "2026-08-20T17:23:29.533571Z",
     "human_model_image": {
       "key": "golden/aurora-reels/assets/human.png",
       "url": null,
@@ -60,13 +59,14 @@
     "mood": "calm_premium",
     "aspect_ratio_override": null,
     "duration_seconds": 9.0,
-    "candidate_count": 3,
+    "candidate_count": 5,
+    "video_count": 2,
     "locked_angle": null,
     "seed": 7,
     "consent": {
       "has_model_release": true,
       "not_a_public_figure": true,
-      "attested_at": "2026-08-11T20:05:07.955672Z",
+      "attested_at": "2026-08-20T17:23:29.533562Z",
       "attested_by": null
     },
     "tier": "mock"
@@ -95,8 +95,8 @@
       "attempt": 1,
       "asset": {
         "key": "golden/aurora-reels/assets/img_0.png",
-        "sha256": "9b419a2b8da22966c1ccebe12f882f479461d023883d2409d77d11858c9d2c72",
-        "size_bytes": 7994,
+        "sha256": "aa16be8a9c65a55777eb1d474d519535e1c02ed46231bfe49800f321406720e3",
+        "size_bytes": 8069,
         "mime_type": "image/png",
         "width": 270,
         "height": 480
@@ -109,10 +109,10 @@
         "angle": "eye_level",
         "lighting": "high_key",
         "composition": "centered_hero",
-        "motion": "slow_dolly_in",
+        "motion": "hero_turn",
         "seed": 7
       },
-      "prompt_sha256": "09996dc944c7eaf7",
+      "prompt_sha256": "31d36a6a77ecdc68",
       "latency_ms": 0,
       "cost_usd": 0.0
     },
@@ -121,8 +121,8 @@
       "attempt": 1,
       "asset": {
         "key": "golden/aurora-reels/assets/img_1.png",
-        "sha256": "c99e3c5a766711061f44db4ea778a4e374855f47f26b3ff559e9832913ddd692",
-        "size_bytes": 7943,
+        "sha256": "8a236672668876bd547fb754ce7b4fec5346456fdf5002a9f8e814a28448e599",
+        "size_bytes": 8012,
         "mime_type": "image/png",
         "width": 270,
         "height": 480
@@ -135,10 +135,10 @@
         "angle": "close_up_product",
         "lighting": "rim_backlit",
         "composition": "product_foreground",
-        "motion": "static_subtle",
+        "motion": "product_reveal",
         "seed": 8
       },
-      "prompt_sha256": "d771524180aa4a05",
+      "prompt_sha256": "878d9fa1c07b2a88",
       "latency_ms": 0,
       "cost_usd": 0.0
     },
@@ -147,8 +147,8 @@
       "attempt": 1,
       "asset": {
         "key": "golden/aurora-reels/assets/img_2.png",
-        "sha256": "232ba3e2c5640d514e790ece7ef936e897572b8e625c4bc4cbc04e2be9714475",
-        "size_bytes": 8329,
+        "sha256": "7fb74eff54b1b4ec948224d2ea21a5fa157d54bb1ade92b13bc4e94c28d084d1",
+        "size_bytes": 8330,
         "mime_type": "image/png",
         "width": 270,
         "height": 480
@@ -161,11 +161,63 @@
         "angle": "three_quarter",
         "lighting": "soft_diffused",
         "composition": "rule_of_thirds_right",
-        "motion": "slow_dolly_out",
+        "motion": "offer_to_camera",
         "seed": 9
       },
-      "prompt_sha256": "53b470b0c8ad2c14",
+      "prompt_sha256": "8dd31af9ca048db6",
       "latency_ms": 0,
+      "cost_usd": 0.0
+    },
+    {
+      "slot": 3,
+      "attempt": 1,
+      "asset": {
+        "key": "golden/aurora-reels/assets/img_3.png",
+        "sha256": "60b533c2b0c184392cb7e0c9df031d9a1766a24efd88086594f135baaef62a85",
+        "size_bytes": 8188,
+        "mime_type": "image/png",
+        "width": 270,
+        "height": 480
+      },
+      "model": "mock",
+      "tier": "mock",
+      "seed": 10,
+      "design_point": {
+        "index": 3,
+        "angle": "profile",
+        "lighting": "hard_directional",
+        "composition": "rule_of_thirds_left",
+        "motion": "pick_up",
+        "seed": 10
+      },
+      "prompt_sha256": "85fa9b192cb3b697",
+      "latency_ms": 14,
+      "cost_usd": 0.0
+    },
+    {
+      "slot": 4,
+      "attempt": 1,
+      "asset": {
+        "key": "golden/aurora-reels/assets/img_4.png",
+        "sha256": "ef5ea1907b6be2e6a2d33e8f552e8887259792d8d2f31100fa8a25de1f7285c8",
+        "size_bytes": 8049,
+        "mime_type": "image/png",
+        "width": 270,
+        "height": 480
+      },
+      "model": "mock",
+      "tier": "mock",
+      "seed": 11,
+      "design_point": {
+        "index": 4,
+        "angle": "low_angle",
+        "lighting": "golden_hour",
+        "composition": "centered_hero",
+        "motion": "walk_in",
+        "seed": 11
+      },
+      "prompt_sha256": "16a0908cd77793b4",
+      "latency_ms": 13,
       "cost_usd": 0.0
     }
   ],
@@ -174,8 +226,8 @@
       "slot": 0,
       "asset": {
         "key": "golden/aurora-reels/assets/vid_0.mp4",
-        "sha256": "b3fdd663ebaf9fbed9d0439ca3a6fa466756fa1b4fd1b5d2e41ffe7bdfaeac8a",
-        "size_bytes": 14249,
+        "sha256": "d15dcb2dc3195d03fd61cb009814319b2b257ee92486c2118479f9f482942c9c",
+        "size_bytes": 15306,
         "mime_type": "video/mp4",
         "width": 135,
         "height": 240
@@ -188,8 +240,8 @@
       "seed_honoured": true,
       "was_chained": false,
       "seam_consistency": null,
-      "start_sha256": "9b419a2b8da22966c1ccebe12f882f479461d023883d2409d77d11858c9d2c72",
-      "motion": "slow_dolly_in",
+      "start_sha256": "aa16be8a9c65a55777eb1d474d519535e1c02ed46231bfe49800f321406720e3",
+      "motion": "hero_turn",
       "latency_ms": 0,
       "cost_usd": 0.0
     },
@@ -197,8 +249,8 @@
       "slot": 1,
       "asset": {
         "key": "golden/aurora-reels/assets/vid_1.mp4",
-        "sha256": "540436ee2a737aa553d1d5df2c30c9ab31f328614b090c8e26b262f59766ad28",
-        "size_bytes": 8553,
+        "sha256": "f5c0b36c6a93ad76b7b87bb269eb825aaaf1f7fd7ac8b5625b91468e2a242f39",
+        "size_bytes": 10240,
         "mime_type": "video/mp4",
         "width": 135,
         "height": 240
@@ -211,31 +263,8 @@
       "seed_honoured": true,
       "was_chained": false,
       "seam_consistency": null,
-      "start_sha256": "c99e3c5a766711061f44db4ea778a4e374855f47f26b3ff559e9832913ddd692",
-      "motion": "static_subtle",
-      "latency_ms": 0,
-      "cost_usd": 0.0
-    },
-    {
-      "slot": 2,
-      "asset": {
-        "key": "golden/aurora-reels/assets/vid_2.mp4",
-        "sha256": "3c2d4a1d6f4713ae211993781838a43a9afbb792c280225399c14d7ea37956c1",
-        "size_bytes": 13378,
-        "mime_type": "video/mp4",
-        "width": 135,
-        "height": 240
-      },
-      "model": "mock",
-      "tier": "mock",
-      "duration_seconds": 9.0,
-      "fps": 24,
-      "seed": 9,
-      "seed_honoured": true,
-      "was_chained": false,
-      "seam_consistency": null,
-      "start_sha256": "232ba3e2c5640d514e790ece7ef936e897572b8e625c4bc4cbc04e2be9714475",
-      "motion": "slow_dolly_out",
+      "start_sha256": "8a236672668876bd547fb754ce7b4fec5346456fdf5002a9f8e814a28448e599",
+      "motion": "product_reveal",
       "latency_ms": 0,
       "cost_usd": 0.0
     }
@@ -246,31 +275,35 @@
     "image_order": [
       1,
       0,
-      2
+      2,
+      4,
+      3
     ],
     "video_order": [
       1,
-      0,
-      2
+      0
     ],
     "winner_slot": 1,
     "image_scores": {
-      "0": 0.115,
+      "0": 0.3904,
       "1": 1.0,
-      "2": 0.0
+      "2": 0.2778,
+      "3": 0.0,
+      "4": 0.046
     },
     "video_scores": {
-      "0": 0.7226,
-      "1": 0.7526,
-      "2": 0.7157
+      "1": 0.7577,
+      "0": 0.7268
     },
     "gate_verdicts": {
       "0": "pass",
       "1": "pass",
-      "2": "pass"
+      "2": "pass",
+      "3": "pass",
+      "4": "pass"
     },
-    "scored_by": "pairwise-linear-20260811",
-    "delivery_summary": "3 renders, 3 previews, worst reframe 16:9 at 56% salience via pad, 1 warning(s)",
+    "scored_by": "pairwise-linear-20260820",
+    "delivery_summary": "3 renders, 3 previews, worst reframe 16:9 at 54% salience via pad, audio attached, 1 warning(s)",
     "original_cost_usd": 0.0
   }
 }

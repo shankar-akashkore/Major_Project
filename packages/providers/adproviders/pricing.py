@@ -218,15 +218,25 @@ def estimate_job_cost(
     llm_model: str,
     candidate_count: int,
     duration_seconds: float,
+    video_count: int | None = None,
 ) -> float:
     """Total estimated cost of one full job, used for the pre-flight check.
 
     The governor calls this *before* stage 1 so an unaffordable job is refused
     up front rather than failing halfway through with money already spent.
+
+    ``video_count`` defaults to ``candidate_count`` — the 1:1 cascade this project
+    ran until the stages were decoupled. It is a separate argument because the two
+    counts price *very* differently: at $0.04 an image against $0.70 a clip, the
+    video term is 94% of a default job, so estimating it from the image count
+    reserves more than three times what a 5-to-2 job will actually spend. A
+    governor that over-reserves refuses jobs the budget could have afforded, which
+    is a quieter failure than overspending and just as wrong.
     """
+    animated = candidate_count if video_count is None else min(video_count, candidate_count)
     return round(
         estimate_image_cost(image_model, candidate_count)
-        + estimate_video_cost(video_model, duration_seconds, candidate_count)
+        + estimate_video_cost(video_model, duration_seconds, animated)
         + estimate_llm_cost(llm_model, 1),
         6,
     )

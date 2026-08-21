@@ -73,11 +73,22 @@ retained. Across every mock motion intent, reframed to 9:16:
 
 | motion intent | subject travel | tracker would gain |
 |---|---|---|
-| `static_subtle` | 3.3% | **0.000** |
-| `handheld_drift` | 4.6% | **0.000** |
-| `orbit_left` | 12.5% | **0.002** |
+| `offer_to_camera` | 0.0% | **0.000** |
+| `walk_in` | 4.0% | **0.000** |
+| `in_use` | 5.9% | **0.000** |
+| `product_reveal` | 6.0% | **0.000** |
+| `hero_turn` | 8.0% | **0.002** |
+| `pick_up` | 9.1% | **0.000** |
 
-Two thousandths of a point. 8–10 s ad motion is a dolly or a drift, not a chase.
+Two thousandths of a point. A subject in an 8–10 s ad works within the frame; it
+does not cross it.
+
+**Re-measured 20 August 2026**, after the motion axis was rewritten from camera
+moves to performances — the retired levels (`static_subtle`, `handheld_drift`,
+`orbit_left`) measured 3.3% / 4.6% / 12.5% travel for 0.000 / 0.000 / 0.002 gain,
+so the conclusion survived the rewrite unchanged. The test is now parametrised over
+the whole axis rather than a chosen three, so a level added later cannot quietly
+break the assumption the crop window rests on.
 
 The metric is not merely insensitive: driven with a synthetic subject crossing half
 the frame it reports gains above 0.08, rising to 0.20 at 70% travel. So the small
@@ -115,11 +126,46 @@ is a published one, and "I found the mp3 in a folder" is how a music rights clai
 happens. The licence travels into `AudioReport` and onto the bundle's `README.txt`,
 so a file handed to someone else still says where its audio came from.
 
-**This project ships no audio content.** No bed is the normal state and the report
-says so rather than going quietly silent. `tone_bed()` synthesises a plainly
-artificial sine so the whole mixing path — looping, ducking, fades, loudness — can be
-developed and tested on a machine with no audio assets, and it is flagged
-`is_test_signal=True` so it can never be described as a soundtrack in a manifest.
+**This project ships no licensed audio content, and delivers a soundtrack anyway.**
+
+Those two facts sat in contradiction for longer than they should have. The rule
+above is right and unchanged; what was wrong was the conclusion drawn from it.
+No bed was the normal state, no caller ever passed one, and the report said so —
+politely, in a field nobody reads, under a video with no sound. An advertisement
+with no sound is not a deliverable, and "we own no music" is answered by writing
+some rather than by shipping silence and describing it.
+
+`adml.audio.choose_bed` decides, in this order:
+
+1. a **licensed track** from `<storage_root>/audio` (override: `AD_AUDIO_LIBRARY`)
+   whose sidecar lists the job's mood;
+2. any licensed track, if none lists that mood;
+3. a **synthesised bed** scored to the mood — `generated_bed()`.
+
+It never returns nothing. A library file needs a JSON sidecar of the same stem
+recording title, source and licence; one without is skipped rather than loaded
+with the provenance left blank, which is the `AudioBed` rule applied one step
+earlier, where a directory scan would otherwise be the thing that decides.
+
+`generated_bed()` is a four- or eight-bar chord progression, not a tone: one
+oscillator per note with its own attack and release, chosen per `Mood` along with
+the harmonic rhythm and how bright the result is. It is flagged `generated=True`
+and credited as *"synthesised for this ad — no third-party rights"*, because a
+manifest that leaves a reader to assume the soundtrack was licensed is the same
+provenance failure as an unrecorded licence, pointing the other way. It is
+deterministic, so a golden replay is not disturbed by its music. A licensed track
+always wins.
+
+`tone_bed()` remains, and remains a 220 Hz sine flagged `is_test_signal=True`, so
+the mixing path can be exercised without either a music file or a synthesis run.
+It is a test signal and can never be described as a soundtrack in a manifest.
+
+**Audio goes on every clip, not only the winner.** This is the one place stage 8
+departs from "the winner only". Reframing a runner-up is nine re-encodes for
+output nobody asked for; mixing one is a stream copy, because the video track is
+copied rather than re-encoded. The UI lets the user play every candidate, and a
+runner-up that plays silent beside a winner that does not reads as a broken clip
+rather than as a deliberate economy.
 
 Two mix decisions worth recording:
 

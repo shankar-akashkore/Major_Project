@@ -427,3 +427,92 @@ test("a later page numbers from its offset, one-indexed and inclusive", () => {
 test("one job is a job, not 1 jobs", () => {
   assert.equal(P.pageSummary({ jobs: [1], total: 1, offset: 0 }), "1 job");
 });
+
+// --- Saved frames ---------------------------------------------------------
+
+test("a saved frame is named after the candidate, not after the storage key", () => {
+  assert.equal(
+    P.downloadName({ key: "generations/abc/img_1.png", mime_type: "image/png" }, "B"),
+    "candidate-B.png",
+  );
+});
+
+test("the extension comes from the key even when the provider mislabels the mime", () => {
+  assert.equal(
+    P.downloadName({ key: "generations/abc/img_0.webp", mime_type: "image/png" }, "A"),
+    "candidate-A.webp",
+  );
+});
+
+test("mime_type is the fallback, and jpeg is spelled the way a file manager expects", () => {
+  assert.equal(P.downloadName({ key: "no-extension", mime_type: "image/jpeg" }, "C"), "candidate-C.jpg");
+});
+
+test("a frame with nothing to go on still gets a usable name", () => {
+  assert.equal(P.downloadName({ key: "" }, "D"), "candidate-D.png");
+  assert.equal(P.downloadName(null, "E"), "candidate-E.png");
+});
+
+// --- Ceilings read as ceilings -------------------------------------------
+
+test("a failed ceiling says the value was over the threshold, not under it", () => {
+  const gate = {
+    verdict: "retry",
+    attempt: 1,
+    checks: [
+      {
+        name: "product_scale",
+        value: 0.294,
+        threshold: 0.16,
+        passed: false,
+        higher_is_better: false,
+        detail: "",
+        implemented: true,
+      },
+    ],
+  } as unknown as Parameters<typeof P.gateSummary>[0];
+
+  const summary = P.gateSummary(gate)!;
+  assert.match(summary.text, /product scale 0\.294 over 0\.160/);
+  assert.doesNotMatch(summary.text, /under/);
+});
+
+test("a failed floor still says under", () => {
+  const gate = {
+    verdict: "retry",
+    attempt: 1,
+    checks: [
+      {
+        name: "palette_adherence",
+        value: 0.2,
+        threshold: 0.456,
+        passed: false,
+        higher_is_better: true,
+        detail: "",
+        implemented: true,
+      },
+    ],
+  } as unknown as Parameters<typeof P.gateSummary>[0];
+
+  assert.match(P.gateSummary(gate)!.text, /palette adherence 0\.200 under 0\.456/);
+});
+
+test("identityPending distinguishes a missing model from an unmeasurable frame", () => {
+  const check = (name: string) =>
+    ({
+      name,
+      value: 0,
+      threshold: 0,
+      passed: true,
+      higher_is_better: true,
+      detail: "",
+      implemented: false,
+    }) as unknown as never;
+
+  const only = { verdict: "pass", attempt: 1, checks: [check("product_scale")] };
+  const both = { verdict: "pass", attempt: 1, checks: [check("product_scale"), check("face_identity")] };
+
+  assert.equal(P.gateSummary(only as never)!.identityPending, false);
+  assert.equal(P.gateSummary(both as never)!.identityPending, true);
+});
+

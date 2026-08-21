@@ -130,6 +130,70 @@ class Vertical(str, Enum):
     OTHER = "other"
 
 
+class PromptStyle(str, Enum):
+    """How verbose the image prompt is.
+
+    An ablation axis, not a preference.  A competing implementation reached
+    visibly better composition with a 37-word prompt where ours ran to 343, which
+    is a testable claim rather than a matter of taste: reference-edit models have
+    a finite instruction-following budget, and a prompt that says twelve things
+    may get fewer of them honoured than one that says four.
+
+    ``COMPACT`` is not "the same prompt, shorter". It carries every design axis —
+    dropping them would delete the multi-candidate diversity the project rests on
+    — but states them as plain imperatives rather than as labelled blocks.
+    """
+
+    FULL = "full"
+    COMPACT = "compact"
+
+
+class ProductScale(str, Enum):
+    """How large the product is in the real world.
+
+    This exists because a reference-composition model has no idea, and nothing in
+    the job told it.  The model is handed a full-frame photograph of a person and
+    a full-frame cutout of a phone; absent any instruction it composites the two
+    at comparable *apparent* size.  That is how the first live iPhone job returned
+    a handset taller than the man holding it, and why the most physically
+    plausible candidate of the five scored lowest.
+
+    The levels are deliberately coarse.  A generator cannot act on "147 mm" with
+    any more precision than it can act on "fits in one hand" — the hand relation
+    is the part it can actually render, so that is what the levels name.
+    """
+
+    PALM = "palm"
+    ONE_HAND = "one_hand"
+    TWO_HANDS = "two_hands"
+    WORN = "worn"
+    FLOOR_STANDING = "floor_standing"
+
+
+#: The scale each vertical implies.  ``None`` means the category genuinely does not
+#: imply one — ``OTHER`` covers everything from lipstick to a sofa, and guessing
+#: "one hand" for a sofa would replace one silent scale error with another.  The
+#: brief compiler handles the unknown case by asserting the *relationship*
+#: ("render at true size relative to the model") without asserting a number, which
+#: is what actually stops the inflation.
+_VERTICAL_SCALE: dict[Vertical, ProductScale | None] = {
+    Vertical.APPAREL: ProductScale.WORN,
+    Vertical.BEAUTY: ProductScale.PALM,
+    Vertical.FOOD_BEVERAGE: ProductScale.ONE_HAND,
+    Vertical.ELECTRONICS: ProductScale.ONE_HAND,
+    Vertical.JEWELLERY: ProductScale.PALM,
+    Vertical.FITNESS: ProductScale.TWO_HANDS,
+    Vertical.HOME: ProductScale.TWO_HANDS,
+    Vertical.FOOTWEAR: ProductScale.WORN,
+    Vertical.OTHER: None,
+}
+
+
+def default_scale_for(vertical: Vertical) -> ProductScale | None:
+    """The scale a vertical implies, or ``None`` when it implies nothing useful."""
+    return _VERTICAL_SCALE[vertical]
+
+
 class Mood(str, Enum):
     """Single user-facing energy control.  Drives lighting and motion intent."""
 
@@ -176,14 +240,30 @@ class Composition(str, Enum):
 
 
 class MotionIntent(str, Enum):
-    """What the image-to-video stage should animate."""
+    """What the *subject* does during the clip.
 
-    SLOW_DOLLY_IN = "slow_dolly_in"
-    SLOW_DOLLY_OUT = "slow_dolly_out"
-    ORBIT_LEFT = "orbit_left"
-    PRODUCT_PRESENT = "product_present"
-    HANDHELD_DRIFT = "handheld_drift"
-    STATIC_SUBTLE = "static_subtle"
+    This axis used to name camera moves: ``slow_dolly_in``, ``slow_dolly_out``,
+    ``orbit_left``, ``handheld_drift``, ``static_subtle`` — five of six levels
+    describing where the lens goes and nothing about the person in front of it.
+
+    Image-to-video models do what they are told, so that is what came back: a
+    still photograph with a camera gliding over it.  The first live job produced
+    three candidates and all three were zooms, which is not an advertisement.
+
+    Every level now names a **human action first**.  Camera movement still varies
+    across the levels, because visual variety is the point of the axis, but it
+    only ever appears as support for something the model is doing.  There is
+    deliberately no level that permits the subject to stand still: a level that
+    can only produce a moving poster does not belong in the design space, and
+    leaving one in means the sampler will eventually spend real money on it.
+    """
+
+    PRODUCT_REVEAL = "product_reveal"
+    HERO_TURN = "hero_turn"
+    IN_USE = "in_use"
+    OFFER_TO_CAMERA = "offer_to_camera"
+    PICK_UP = "pick_up"
+    WALK_IN = "walk_in"
 
 
 # --- Job lifecycle ----------------------------------------------------------

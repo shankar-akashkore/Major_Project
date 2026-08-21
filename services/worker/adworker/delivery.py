@@ -448,7 +448,19 @@ def deliver(
         key = f"delivery/{request.job_id}/preview_{platform.value}.png"
         report.previews[platform.value] = storage.put_bytes(key, png, "image/png")
 
-    report.audio = _attach_audio(video, request, storage, bed, report)
+    # Audio goes on **every** clip, not only the winner, which is the one place
+    # this stage departs from "the winner only". Reframing a runner-up means nine
+    # re-encodes for output nobody asked for; mixing a runner-up means one stream
+    # copy, because the video track is copied rather than re-encoded. And the UI
+    # lets the user play all of them — a runner-up that plays silent next to a
+    # winner that does not reads as a broken clip rather than as a deliberate
+    # economy.
+    for candidate in result.videos:
+        attached = _attach_audio(
+            candidate, request, storage, bed, report, primary=candidate is video
+        )
+        if candidate is video:
+            report.audio = attached
 
     # `report` explicitly, not `result.delivery` — the caller has not assigned that
     # yet, and reading it here shipped a bundle with no media in it.
@@ -465,22 +477,34 @@ def _attach_audio(
     storage: Storage,
     bed: A.AudioBed | None,
     report: DeliveryReport,
+    *,
+    primary: bool = True,
 ) -> AudioReport:
-    """Mix audio onto the native render, when a licensed bed was supplied.
+    """Mix audio onto the native render.
 
-    No bed is the normal state and is not a failure: the project ships no audio
-    content, because bundling music with unrecorded provenance into a deliverable is
-    the one delivery mistake that cannot be corrected after publication.
+    ``bed`` is now chosen upstream and is effectively never ``None`` — the pipeline
+    takes a licensed track from the library when one is there and synthesises one
+    when it is not. The branch stays because delivery is called directly in tests
+    and by scripts, and a silent clip should say why it is silent rather than
+    leaving the reader of a manifest to guess.
+
+    The reason it used to be ``None`` in a real job was not a bug: this project
+    ships no music, and :class:`adml.audio.AudioBed` refuses audio with no recorded
+    licence. Both still hold. What changed is that "we have no licensed music" is
+    answered by generating some rather than by delivering an advertisement with no
+    sound.
     """
     if bed is None:
         return AudioReport(
             attached=False,
-            note="no music bed supplied. adml.audio.AudioBed requires a recorded "
-            "licence, and this project ships no audio content; pass a bed to enable "
-            "the mix.",
+            note="no music bed supplied, so this clip ships silent. The pipeline "
+            "normally passes one — see adml.audio.choose_bed.",
         )
 
-    if not A.caption_fits(request.caption, video.duration_seconds):
+    # Once per job, not once per clip. Whether the caption fits the duration is a
+    # fact about the job — every clip is the same length — and repeating it per
+    # candidate would turn one finding into a list.
+    if primary and not A.caption_fits(request.caption, video.duration_seconds):
         estimate = A.voice_duration_estimate(request.caption)
         report.warnings.append(
             f"the caption reads in about {estimate:.1f}s, which does not fit a "
@@ -491,7 +515,9 @@ def _attach_audio(
         mixed, mix_report = A.mix(storage.get_bytes(video.asset.key), bed)
         measured = A.measure_loudness(mixed)
     except A.AudioError as exc:
-        report.warnings.append(f"the audio mix failed, so the clip ships silent: {exc}")
+        report.warnings.append(
+            f"the audio mix failed for clip {video.index}, so it ships silent: {exc}"
+        )
         return AudioReport(attached=False, note=str(exc))
 
     key = f"delivery/{request.job_id}/{video.index}_with_audio.mp4"
@@ -506,4 +532,5 @@ def _attach_audio(
         measured_lufs=round(measured, 2),
         has_voiceover=mix_report.has_voice,
         is_test_signal=bed.is_test_signal,
+        generated=bed.generated,
     )
