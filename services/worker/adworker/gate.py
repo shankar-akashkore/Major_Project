@@ -7,10 +7,14 @@ unusable, and expressing that as a low score would let it be ranked first on a b
 day.
 
 Some checks are real today (palette, safe area, exposure, focal clarity — all
-numpy, all running now).  Three are not: product identity needs DINOv2, face
-identity needs ArcFace, and NSFW needs the safety classifier.  Those return
+numpy, all running now).  Face and product identity compute a real ArcFace or
+DINOv2 cosine similarity when an embedding archive is available (see
+``_identity_check``), but nothing in this synchronous worker can run either
+encoder itself, so on a live job today neither ever is.  NSFW needs the safety
+classifier and has no such archive to fall back on.  All three return
 ``implemented=False`` and pass by default, so nothing claims to have verified an
-identity it never looked at.
+identity it never looked at — including, for the two that now compute a real
+number, the identity it looked at but has no calibrated threshold for yet.
 
 ``product_scale`` is a fourth kind and the reason this docstring changed.  It is
 real when it can be, and honestly absent when it cannot: it finds the product by
@@ -31,6 +35,7 @@ from __future__ import annotations
 
 import numpy as np
 from adml import features as F
+from adml.embeddings import EmbeddingSet
 from adproviders import Storage
 from adschema import (
     AdJobRequest,
@@ -111,12 +116,10 @@ THRESH_PRODUCT_AREA = 0.16
 #: a mis-scaled ad, it is a pack shot, and this check is for composites.
 UNDISCRIMINATIVE_SHARE = 0.40
 
-#: Checks that would need model weights this machine cannot host yet.
+#: A check that would need model weights this machine cannot host yet — see
+#: ``adml.embeddings`` for why: torch does not belong on the 8 GB laptop this
+#: worker runs on, so nothing here ever runs an encoder itself.
 _PENDING = {
-    "product_identity": (
-        "DINOv2 cosine vs the rembg product cutout — lands with the Colab extractor"
-    ),
-    "face_identity": "ArcFace cosine vs the human reference — lands with the Colab extractor",
     "nsfw": "safety classifier — lands with the intake safety gate",
 }
 
@@ -128,6 +131,103 @@ def _pending_check(name: str) -> GateCheck:
         threshold=0.0,
         passed=True,
         detail=_PENDING[name],
+        implemented=False,
+    )
+
+
+#: Which embedding block (as written by ``notebooks/colab_embeddings.ipynb`` and
+#: read by ``adml.embeddings.load_directory``) each identity check compares
+#: against, and the model that produces it — kept beside ``adml.embeddings.EXPECTED``
+#: rather than duplicating those strings from scratch.
+_IDENTITY_BLOCKS = {
+    "face_identity": ("arcface", "insightface/buffalo_l"),
+    "product_identity": ("dinov2", "facebook/dinov2-base"),
+}
+
+
+def _identity_key(asset: AssetRef) -> str:
+    """The key an embedding archive would know an asset by.
+
+    Content-addressed, matching the fingerprinting convention already used to
+    cache generations (``adworker.pipeline``): the same reference photo used
+    across many jobs gets one embedding, not one per job.
+    """
+    return asset.sha256 or asset.key
+
+
+def _identity_check(
+    name: str,
+    candidate_asset: AssetRef,
+    reference: AssetRef | None,
+    embeddings: dict[str, EmbeddingSet] | None,
+) -> GateCheck:
+    """Cosine similarity between a candidate frame and its reference.
+
+    This is the mechanism the module docstring used to describe as unbuilt. It is
+    no longer unbuilt: given an embedding archive (``notebooks/colab_embeddings.ipynb``
+    now writes an ``arcface`` block alongside ``dinov2``, both keyed by
+    :func:`_identity_key`), this computes a real cosine similarity with plain numpy.
+
+    It still reports ``implemented=False`` in every case, including the case where
+    a real number came out. That is deliberate, not a placeholder left over from
+    before: no calibration sweep has measured where same-identity and
+    different-identity pairs actually separate for *this* generator — the exact
+    measurement ``THRESH_PRODUCT_AREA`` above required eleven real frames before it
+    was trusted as a gate. Inventing a threshold from a vendor's generic
+    recommendation would be exactly the kind of unmeasured number this project does
+    not ship, and would also make ``GateResult.verified_identity`` claim a
+    verification this check cannot back. So the value is surfaced — genuinely
+    useful for a human deciding where to put that threshold — and the verdict is
+    not. Turning this into a real gate is one calibration script and one constant,
+    not a rewrite.
+
+    Also honestly absent, same as before: nothing in the live pipeline runs an
+    encoder synchronously, because none of them can (see ``adml.embeddings``), so
+    ``embeddings`` is ``None`` on every real job today and this still reports
+    exactly what it always has. The parameter exists so an offline or future
+    asynchronous re-score pass — the only place a Colab round-trip can actually
+    happen — has something to call.
+    """
+    block_name, model_id = _IDENTITY_BLOCKS[name]
+
+    def _absent(detail: str) -> GateCheck:
+        return GateCheck(
+            name=name, value=0.0, threshold=0.0, passed=True, detail=detail, implemented=False
+        )
+
+    if embeddings is None or block_name not in embeddings:
+        return _absent(
+            f"{block_name} cosine vs the reference — needs {model_id}; run "
+            "notebooks/colab_embeddings.ipynb and pass the resulting archive in "
+            "to compute it"
+        )
+    if reference is None:
+        return _absent("no reference image was available to compare against")
+
+    block = embeddings[block_name]
+    ref_key, cand_key = _identity_key(reference), _identity_key(candidate_asset)
+    missing = [k for k in (ref_key, cand_key) if k not in block]
+    if missing:
+        return _absent(
+            f"{block_name} archive is missing {len(missing)} of 2 vectors needed "
+            f"(reference {'present' if ref_key not in missing else 'absent'}, "
+            f"candidate {'present' if cand_key not in missing else 'absent'})"
+        )
+
+    ref_vec, cand_vec = block.vectors[ref_key], block.vectors[cand_key]
+    denom = float(np.linalg.norm(ref_vec) * np.linalg.norm(cand_vec))
+    cosine = float(np.dot(ref_vec, cand_vec) / denom) if denom > 1e-12 else 0.0
+    return GateCheck(
+        name=name,
+        value=round(cosine, 4),
+        threshold=0.0,
+        passed=True,
+        detail=(
+            f"{block_name} cosine similarity to the reference is {cosine:.3f} — "
+            "reported for the record, not yet a gate. No calibration sweep has "
+            "measured where same-identity and different-identity pairs separate "
+            "for this generator, so this cannot pass or fail a candidate yet."
+        ),
         implemented=False,
     )
 
@@ -240,12 +340,29 @@ def evaluate_image(
     storage: Storage,
     attempt: int = 1,
     product: AssetRef | None = None,
+    palette_reliable: bool = True,
+    human_reference: AssetRef | None = None,
+    embeddings: dict[str, EmbeddingSet] | None = None,
 ) -> GateResult:
     """Run every hard filter against a generated frame.
 
     ``product`` is the reference the generator was given — the rembg cutout when
     intake kept one. Optional because the scale check degrades to "could not be
-    measured" without it rather than failing the job.
+    measured" without it rather than failing the job. ``human_reference`` is its
+    counterpart for the face-identity check. ``embeddings`` is the archive
+    :func:`_identity_check` reads from; ``None`` on every live job today, because
+    nothing in this synchronous worker can run an encoder — see that function's
+    docstring for what it does once one exists.
+
+    ``palette_reliable`` is False when intake could not cut the product out and read
+    the palette off the whole photograph instead. The measurement still runs and is
+    still reported; it just stops being grounds for rejection. This is not leniency.
+    A palette taken from a product shot on a pale studio sweep comes back ~79% off-
+    white, and the gate then demands that every advertisement be 79% off-white —
+    which no brief in this system would ever ask a generator to produce. The first
+    live job to hit it rejected all five candidates, retried all five, and refused
+    to spend on video, for $0.20 and no usable output. The UI already called that
+    palette "a materially weaker constraint"; this makes the gate agree with it.
     """
     rgb = F.load_image(storage.get_bytes(candidate.asset.key))
     sal = F.saliency_map(rgb)
@@ -260,7 +377,16 @@ def evaluate_image(
             value=round(palette_score, 4),
             threshold=THRESH_PALETTE,
             passed=palette_score >= THRESH_PALETTE,
-            detail=f"weighted mean ΔE76 {mean_de:.1f} against the brand palette",
+            advisory=not palette_reliable,
+            detail=(
+                f"weighted mean ΔE76 {mean_de:.1f} against the brand palette"
+                + (
+                    ""
+                    if palette_reliable
+                    else " — advisory only: the palette was read off the whole product "
+                    "photograph, so it describes that photo's backdrop rather than the brand"
+                )
+            ),
         )
     )
 
@@ -313,9 +439,12 @@ def evaluate_image(
         )
     )
 
+    checks.append(_identity_check("face_identity", candidate.asset, human_reference, embeddings))
+    checks.append(_identity_check("product_identity", candidate.asset, product, embeddings))
     checks.extend(_pending_check(name) for name in _PENDING)
 
-    failed = [c for c in checks if not c.passed]
+    # Blocking failures, not every failure: an advisory check reports but cannot veto.
+    failed = [c for c in checks if not c.passed and not c.advisory]
     if not failed:
         verdict = GateVerdict.PASS
     elif attempt == 1:

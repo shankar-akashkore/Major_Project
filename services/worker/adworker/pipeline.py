@@ -38,6 +38,7 @@ from adproviders import (
     estimate_job_cost,
 )
 from adschema import (
+    END_CARD_SECONDS,
     MAX_DURATION_S,
     MIN_DURATION_S,
     AdJobRequest,
@@ -61,6 +62,41 @@ from .scoring import load_ranker, rank_videos, score_image_set, score_video
 
 #: Called with each progress event.  The API turns this into an SSE stream.
 ProgressHook = Callable[[StageEvent], Awaitable[None]] | None
+
+
+def _shared_blocking_failure(candidates: list[ImageCandidate | None]) -> set[str]:
+    """Checks that every candidate failed, or an empty set.
+
+    Empty whenever any candidate passed the gate, because a job with a viable
+    candidate has nothing job-wide wrong with it. Also empty when a slot produced
+    nothing at all — an absent candidate is not evidence about a check.
+
+    Intersection rather than union on purpose: two candidates failing *different*
+    checks are two ordinary failures, and each may well be fixed by a stricter
+    prompt. It is the check they *all* share that points at a cause no prompt can
+    reach.
+    """
+    gates = [c.gate for c in candidates if c is not None and c.gate is not None]
+    if not gates or len(gates) != len(candidates):
+        return set()
+    if any(g.verdict is GateVerdict.PASS for g in gates):
+        return set()
+    shared = {c.name for c in gates[0].blocking_failures}
+    for gate in gates[1:]:
+        shared &= {c.name for c in gate.blocking_failures}
+    return shared
+
+
+def _palette_is_reliable(result: JobResult) -> bool:
+    """Whether the palette the gate judges against describes the *brand*.
+
+    ``request.theme.palette`` is overwritten by intake with whatever it extracted,
+    so by gate time the request no longer says where the colours came from — only
+    the intake report does. A palette read off a whole product photograph describes
+    that photograph's backdrop, and rejecting paid generations for not matching a
+    stranger's studio sweep is not quality control.
+    """
+    return result.intake is None or result.intake.palette_source != "product-frame"
 
 
 def _product_reference(request: AdJobRequest, result: JobResult) -> AssetRef:
@@ -264,68 +300,46 @@ class Pipeline:
 
     # --- Stage 3 + 4: images with the gate in the retry loop ----------------
 
-    async def _image_slot(
+    async def _image_attempt(
         self,
         record: JobRecord,
         result: JobResult,
         brief,
-        total: int,
+        prompt_override: str | None = None,
     ) -> ImageCandidate | None:
-        """One candidate slot: generate, gate, and retry once if the gate says to.
+        """One generation and one gate for one slot.
 
-        Returns ``None`` only when the retry allowance was spent before a single
-        generation happened, which cannot occur on a first attempt. A candidate that
-        *failed* is returned rather than dropped, so the UI can show what went wrong.
+        ``None`` only when the retry allowance was already spent, which cannot
+        happen on a first attempt.  A candidate that *failed* is returned rather
+        than dropped, so the UI can show what went wrong.
 
-        Lifted out of the stage loop when the slots became concurrent. The retry
-        allowance is per-slot and keyed by slot, so nothing here is shared with a
-        sibling slot except the governor, which does its own locking.
+        Split out of the old ``_image_slot`` loop when the retry decision stopped
+        being a slot-local one: whether a retry can possibly help depends on how the
+        *other* slots did, and a slot cannot see its siblings while they are still
+        in flight.  See :meth:`_images_and_gate`.
         """
         request = record.request
         slot_key = f"{request.job_id}:slot{brief.index}"
-        prompt_override: str | None = None
-        candidate: ImageCandidate | None = None
+        try:
+            attempt = self.governor.register_attempt(slot_key)
+        except RetryBudgetExceeded:
+            return None
 
-        while True:
-            try:
-                attempt = self.governor.register_attempt(slot_key)
-            except RetryBudgetExceeded:
-                # Allowance spent: keep the last attempt as a rejected candidate
-                # so the UI can show what happened rather than silently dropping it.
-                break
-
-            candidate = await self._generate_one_image(
-                record, result, brief, attempt, prompt_override
-            )
-            # The gate is numpy over a full-resolution frame — around 0.4 s measured,
-            # small against a 50 s generation but synchronous, and on a shared event
-            # loop a synchronous 0.4 s is 0.4 s that four other slots spend not
-            # polling their queue. Off the loop it costs nothing that matters.
-            gate = await asyncio.to_thread(
-                evaluate_image,
-                candidate,
-                request,
-                self.storage,
-                attempt,
-                _product_reference(request, result),
-            )
-            candidate.gate = gate
-
-            if gate.verdict is GateVerdict.PASS:
-                break
-            if gate.verdict is GateVerdict.REJECT:
-                break
-
-            # RETRY: say something new about what failed, or stop.
-            prompt_override = stricter_prompt(brief.image_prompt, gate)
-            await self._emit(
-                record,
-                Stage.QUALITY_GATE,
-                "progress",
-                f"candidate {brief.index} failed {gate.reason}; retrying once",
-                (brief.index + 0.5) / max(1, total),
-            )
-
+        candidate = await self._generate_one_image(record, result, brief, attempt, prompt_override)
+        # The gate is numpy over a full-resolution frame — around 0.4 s measured,
+        # small against a 50 s generation but synchronous, and on a shared event
+        # loop a synchronous 0.4 s is 0.4 s that four other slots spend not
+        # polling their queue. Off the loop it costs nothing that matters.
+        candidate.gate = await asyncio.to_thread(
+            evaluate_image,
+            candidate,
+            request,
+            self.storage,
+            attempt,
+            _product_reference(request, result),
+            _palette_is_reliable(result),
+            request.human_model_image,
+        )
         return candidate
 
     async def _generate_one_image(
@@ -348,9 +362,9 @@ class Pipeline:
         )
 
         product = _product_reference(request, result)
+        # The logo is not a reference. It goes on the closing slate at delivery, where
+        # it is composited pixel-exact rather than redrawn — see `adworker.delivery`.
         references = [request.human_model_image, product]
-        if request.logo_image is not None:
-            references.append(request.logo_image)
 
         gen_request = ImageGenRequest(
             brief=effective,
@@ -358,7 +372,7 @@ class Pipeline:
             aspect_ratio=request.aspect_ratio,
             seed=seed,
             output_key=key,
-            reference_roles=["human model", "product", "logo"][: len(references)],
+            reference_roles=["human model", "product"],
             palette=request.theme.palette,
         )
 
@@ -449,9 +463,24 @@ class Pipeline:
 
         done = 0
 
-        async def one(brief) -> ImageCandidate | None:
+        async def one(
+            brief, prompt_override: str | None = None, *, lands: bool = True
+        ) -> ImageCandidate | None:
             nonlocal done
-            candidate = await self._image_slot(record, result, brief, total)
+            candidate = await self._image_attempt(record, result, brief, prompt_override)
+            if not lands:
+                # A retry is a second attempt at a slot that has already landed, not a
+                # sixth candidate arriving. Counting it ran `done` past `total` and the
+                # fraction past 1.0, which `StageEvent` rejects outright — so a single
+                # retry killed the job *after* paying for every generation in it.
+                await self._emit(
+                    record,
+                    Stage.IMAGE_GEN,
+                    "progress",
+                    f"candidate {chr(ord('A') + brief.index)} retried with a stricter prompt",
+                    done / max(1, total),
+                )
+                return candidate
             done += 1
             await self._emit(
                 record,
@@ -465,7 +494,49 @@ class Pipeline:
             )
             return candidate
 
-        candidates = await asyncio.gather(*(self._bounded(one(brief)) for brief in briefs))
+        candidates = list(await asyncio.gather(*(self._bounded(one(brief)) for brief in briefs)))
+
+        # Retry only what a retry could plausibly fix.
+        #
+        # A retry rewrites the prompt and pays for another generation, which is worth
+        # doing when one candidate failed for its own reasons. When *every* candidate
+        # failed the same check, the cause is upstream of any prompt — a threshold, a
+        # reference, an intake decision — and rewording five prompts buys five more
+        # rejections at full price. The first live job to hit this spent $0.20 where
+        # $0.10 would have bought exactly the same answer.
+        wants_retry = [
+            i
+            for i, c in enumerate(candidates)
+            if c is not None and c.gate is not None and c.gate.verdict is GateVerdict.RETRY
+        ]
+        shared = _shared_blocking_failure(candidates)
+        if wants_retry and shared:
+            await self._emit(
+                record,
+                Stage.QUALITY_GATE,
+                "warning",
+                f"every candidate failed {', '.join(sorted(shared))} — that is a job-wide "
+                f"cause rather than {len(wants_retry)} unlucky generations, so no retry "
+                f"was bought",
+            )
+        elif wants_retry:
+            retried = await asyncio.gather(
+                *(
+                    self._bounded(
+                        one(
+                            briefs[i],
+                            stricter_prompt(briefs[i].image_prompt, candidates[i].gate),
+                            lands=False,
+                        )
+                    )
+                    for i in wants_retry
+                )
+            )
+            for i, candidate in zip(wants_retry, retried, strict=True):
+                # A spent allowance returns None; the first attempt stands in that case
+                # so the UI still has something to show.
+                if candidate is not None:
+                    candidates[i] = candidate
 
         for candidate in candidates:
             if candidate is not None:
@@ -593,11 +664,15 @@ class Pipeline:
                 0.9,
             )
 
-        native = self.videos.supports_duration(request.duration_seconds)
-        delivered = self.videos.deliverable_duration(request.duration_seconds)
+        # The advertisement, not the delivered file. When the job closes on a brand
+        # slate the clip is `duration_seconds - END_CARD_SECONDS` long and the slate
+        # makes up the rest, so this is the number the provider is asked for, billed
+        # on, and cached against.
+        native = self.videos.supports_duration(request.ad_seconds)
+        delivered = self.videos.deliverable_duration(request.ad_seconds)
         if not native:
             note = "chained (provider caps below the requested duration)"
-        elif delivered != request.duration_seconds:
+        elif delivered != request.ad_seconds:
             # Kling offers {5, 10} and nothing between, so a 9 s ask becomes 10 s.
             note = (
                 f"native, delivered at {delivered:.0f}s — "
@@ -609,7 +684,8 @@ class Pipeline:
             record,
             Stage.VIDEO_GEN,
             "started",
-            f"animating {total} candidates at {request.duration_seconds:.0f}s — {note}",
+            f"animating {total} candidates at {request.ad_seconds:.1f}s — {note}"
+            + (f", plus a {END_CARD_SECONDS:.1f}s end card" if request.has_end_card else ""),
         )
 
         limit = min(self.governor.settings.max_concurrent_generations, max(1, total))
@@ -622,7 +698,7 @@ class Pipeline:
             gen_request = VideoGenRequest(
                 brief=source.brief,
                 start_image=source.asset,
-                duration_seconds=request.duration_seconds,
+                duration_seconds=request.ad_seconds,
                 aspect_ratio=request.aspect_ratio,
                 seed=seed,
                 output_key=key,
@@ -651,7 +727,7 @@ class Pipeline:
                     brief=source.brief,
                     asset=cached,
                     duration_seconds=delivered,
-                    requested_duration_seconds=request.duration_seconds,
+                    requested_duration_seconds=request.ad_seconds,
                     tier=self.videos.tier,
                     provider=self.videos.model,
                     seed=seed,
@@ -664,8 +740,8 @@ class Pipeline:
                     provider=self.videos.name,
                     model=self.videos.model,
                     operation="video",
-                    estimated_usd=self.videos.estimate_cost(request.duration_seconds, 1),
-                    quantity=request.duration_seconds,
+                    estimated_usd=self.videos.estimate_cost(request.ad_seconds, 1),
+                    quantity=request.ad_seconds,
                     call=lambda r=gen_request: self.videos.generate(r),
                     actual_cost_of=lambda r: r.cost_usd,
                     note=f"candidate {source.index}",
@@ -677,7 +753,7 @@ class Pipeline:
                     brief=source.brief,
                     asset=gen.asset,
                     duration_seconds=gen.duration_seconds,
-                    requested_duration_seconds=request.duration_seconds,
+                    requested_duration_seconds=request.ad_seconds,
                     fps=gen.fps,
                     tier=gen.tier,
                     provider=gen.model,
@@ -690,6 +766,7 @@ class Pipeline:
                 )
 
             video.thumbnail = source.asset
+            self._trim_to_ad_length(video, request)
 
             # Verify the delivered file, not the provider's claim about it. The
             # project commits to 8-10 s output and the only trustworthy source for
@@ -733,6 +810,38 @@ class Pipeline:
             1.0,
         )
 
+    def _trim_to_ad_length(self, video: VideoCandidate, request: AdJobRequest) -> None:
+        """Cut a clip back to the advertisement's length when the provider overshot.
+
+        Kling offers ``{5, 10}`` and :meth:`VideoPrice.snap_duration` rounds up, so a
+        request for 8.5 s arrives as a 10 s file. Without this the end card would be
+        appended to a full-length clip and the delivered file would run past the
+        8-10 s window the project commits to.
+
+        Deliberately placed here, before scoring: the frames the ranker measures are
+        then exactly the frames that ship, which is what keeps the image-stage /
+        video-stage rank agreement a comparison between the same artefacts.
+
+        The trimmed clip is written to its own key rather than over the generation,
+        so the provider's raw output survives for audit and the governor's cache
+        entry keeps pointing at what was actually paid for.
+        """
+        if not request.has_end_card:
+            return
+        target = request.ad_seconds
+        if video.duration_seconds <= target + V.DURATION_TOLERANCE_S:
+            return
+        try:
+            trimmed = V.trim(self.storage.get_bytes(video.asset.key), target)
+        except (V.ClipDecodeError, FileNotFoundError, ValueError):
+            # Advisory, like every other duration finding. A clip that cannot be
+            # trimmed still ranks and still delivers; it just runs long, and
+            # `_verify_delivered` is about to say so.
+            return
+        key = f"generations/{request.job_id}/vid_{video.source_image_index}_ad.mp4"
+        video.asset = self.storage.put_bytes(key, trimmed, "video/mp4")
+        video.duration_seconds = target
+
     async def _verify_delivered(self, record: JobRecord, video: VideoCandidate):
         """Probe a delivered clip and report what the file really contains.
 
@@ -743,11 +852,16 @@ class Pipeline:
         """
         try:
             data = self.storage.get_bytes(video.asset.key)
+            # Shifted by the slate when there is one. The 8-10 s commitment is about
+            # what the viewer receives, and the viewer receives this clip *plus* the
+            # card — so judging the clip against the unshifted window would report a
+            # correct 6.5 s advertisement as too short.
+            carve = END_CARD_SECONDS if record.request.has_end_card else 0.0
             check = V.verify_duration(
                 data,
                 video.duration_seconds,
-                min_seconds=MIN_DURATION_S,
-                max_seconds=MAX_DURATION_S,
+                min_seconds=MIN_DURATION_S - carve,
+                max_seconds=MAX_DURATION_S - carve,
             )
             clip, motion = V.measure(data)
         except (V.ClipDecodeError, FileNotFoundError, ValueError) as exc:

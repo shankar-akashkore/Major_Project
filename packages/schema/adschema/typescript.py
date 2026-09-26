@@ -190,6 +190,12 @@ def _ts_number(value: float) -> str:
     return str(value)
 
 
+def _ts_string(value: str) -> str:
+    """A double-quoted TS string literal.  Only backslashes and quotes need escaping
+    here — every value that reaches this is a hex colour or an enum value."""
+    return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
 class Emitter:
     """Walks a set of root models and renders the transitive closure.
 
@@ -296,7 +302,12 @@ class Emitter:
         lines.append("}")
         return "\n".join(lines)
 
-    def render(self, roots: Iterable[type[BaseModel]], constants: dict[str, float]) -> str:
+    def render(
+        self,
+        roots: Iterable[type[BaseModel]],
+        constants: dict[str, float],
+        tables: dict[str, tuple[str, dict[str, str]]] | None = None,
+    ) -> str:
         for root in roots:
             self.register(root)
         chunks = [_BANNER.rstrip()]
@@ -312,6 +323,18 @@ class Emitter:
         for name in sorted(self.enums):
             chunks.append(self.render_enum(name, self.enums[name]))
 
+        # Lookup tables come after the enums because they are keyed by one, and a
+        # `Partial<Record<...>>` referring to a type declared further down would be
+        # legal TypeScript but a lie about where the reader should look first.
+        if tables:
+            chunks.append("// --- Lookup tables ---")
+            for name in sorted(tables):
+                key_type, mapping = tables[name]
+                rows = "\n".join(f"  {k}: {_ts_string(v)}," for k, v in mapping.items())
+                chunks.append(
+                    f"export const {name}: Partial<Record<{key_type}, string>> = {{\n{rows}\n}};"
+                )
+
         chunks.append("// --- Models ---")
         for name in sorted(self.models):
             chunks.append(self.render_model(name, self.models[name]))
@@ -323,6 +346,7 @@ def generate() -> str:
     from . import (
         DEFAULT_CANDIDATE_COUNT,
         DEFAULT_VIDEO_COUNT,
+        END_CARD_SECONDS,
         MAX_DURATION_S,
         MIN_DURATION_S,
         AdJobRequest,
@@ -341,6 +365,7 @@ def generate() -> str:
         SpendEntry,
         StageEvent,
     )
+    from .enums import _STUDIO_SWEEP_HEX
 
     roots = [
         AdJobRequest,
@@ -365,10 +390,20 @@ def generate() -> str:
     constants = {
         "MIN_DURATION_S": MIN_DURATION_S,
         "MAX_DURATION_S": MAX_DURATION_S,
+        "END_CARD_SECONDS": END_CARD_SECONDS,
         "DEFAULT_CANDIDATE_COUNT": DEFAULT_CANDIDATE_COUNT,
         "DEFAULT_VIDEO_COUNT": DEFAULT_VIDEO_COUNT,
     }
-    return Emitter().render(roots, constants)
+    # Exported so the wizard can paint a swatch beside the backdrop it names.
+    # Hard-coding the same five hexes in the UI would let the swatch and the
+    # rendered ad disagree the first time one of them is edited alone.
+    tables = {
+        "STUDIO_SWEEP_HEX": (
+            "BackgroundTreatment",
+            {k.value: v for k, v in _STUDIO_SWEEP_HEX.items()},
+        ),
+    }
+    return Emitter().render(roots, constants, tables)
 
 
 __all__ = ["Emitter", "generate"]

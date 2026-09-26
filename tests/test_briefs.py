@@ -228,3 +228,112 @@ async def test_the_style_is_recorded_on_the_brief_set(make_request):
     for style in PromptStyle:
         briefs = await compile_briefs(make_request(), P.MockLLMProvider(), style)
         assert briefs.prompt_style == style.value
+
+
+# --- The logo is not a generation reference ----------------------------------
+#
+# It used to be, and the generator did exactly as it was told. The first live
+# Seedream job returned five frames with a large Apple mark stamped into the
+# corner of the photograph — the prompt said "Image 3 is the brand logo. Reproduce
+# it cleanly and unaltered", and a reference-composition model handed a logo puts
+# the logo in the picture.
+#
+# That is the wrong mechanism twice over. An advertisement does not carry a
+# floating vector mark mid-scene, and a diffusion model *redraws* letterforms
+# rather than reproducing them — the one thing a brand mark cannot survive. The
+# logo now goes on the closing slate at delivery, composited pixel-exact, for the
+# 1.5 s it is meant to last.
+
+
+def test_the_logo_is_never_offered_as_a_reference(make_request, storage):
+    """Even when one was uploaded. Its presence is what caused the bug."""
+    import adproviders as P
+    from adworker.briefs import _reference_roles
+
+    logo = P.mock_reference_asset(storage, "uploads/t/logo.png", seed=5)
+    assert _reference_roles(make_request(logo_image=logo)) == ["the human model", "the product"]
+    assert _reference_roles(make_request()) == ["the human model", "the product"]
+
+
+def test_the_prompt_never_asks_for_the_logo(make_request, storage):
+    """The instruction, not just the image. Removing one without the other would
+    leave the model reaching for a reference it was not given."""
+    import adproviders as P
+
+    logo = P.mock_reference_asset(storage, "uploads/t/logo.png", seed=5)
+    prompt = _build_image_prompt(make_request(logo_image=logo), _point(), "")
+
+    assert "logo" not in prompt.lower()
+    assert "Image 3" not in prompt
+
+
+def test_the_negative_prompt_forbids_a_mark_added_to_the_scene(make_request):
+    """Belt and braces, but aimed at placement rather than at logos in general.
+
+    Omitting the reference stops the model being *handed* a logo; it does not stop
+    it inventing one, and a model shown a branded object will happily add more of
+    the brand to the backdrop.
+    """
+    negatives = _build_negative_prompt(make_request())
+
+    assert "superimposed logo" in negatives
+    assert "brand mark added to the background" in negatives
+
+
+def test_the_negatives_do_not_ask_for_the_product_to_be_de_branded(make_request):
+    """The trap this whole area sits over.
+
+    The positive prompt demands the product's "label text and finish" exactly, and
+    for a pair of Apple headphones the mark on the earcup *is* the product. A bare
+    "brand logo" negative contradicts that, and the generator is free to resolve the
+    contradiction by wiping the product's own branding.
+
+    That would be invisible: `product_identity` is a pending check, so nothing
+    downstream measures whether the product still looks like itself. The negatives
+    must name a mark added to the *scene*, never logos as a class.
+    """
+    # Split on commas: the negatives are a keyword list, and it is a whole *term*
+    # like "brand logo" that is blunt. A substring check would flag "superimposed
+    # logo", which is exactly the qualified form we want.
+    terms = {t.strip().lower() for t in _build_negative_prompt(make_request()).split(",")}
+    blunt = {"logo", "brand logo", "logos", "branding", "product logo", "brand mark"}
+
+    assert not (terms & blunt), (
+        f"{sorted(terms & blunt)} name logos as a class, which asks the generator to "
+        "strip the product's own mark as well as an added one"
+    )
+    # ...and the qualified forms survived the tightening.
+    assert "superimposed logo" in terms
+
+
+async def test_the_generator_is_handed_two_references_not_three(storage, governor, make_request):
+    """The wiring, which is where this actually broke.
+
+    Every assertion above reads the brief builder. The bug was one line in the
+    pipeline appending a third reference, and it would have survived all of them.
+    """
+    import adproviders as P
+    from adworker import Pipeline
+
+    seen: list[list[str]] = []
+    provider = P.MockImageProvider(storage)
+    original = provider.generate
+
+    async def spy(request):
+        seen.append(list(request.reference_roles))
+        return await original(request)
+
+    provider.generate = spy
+    logo = P.mock_reference_asset(storage, "uploads/t/logo.png", seed=5)
+    pipeline = Pipeline(
+        storage=storage,
+        governor=governor,
+        image_provider=provider,
+        video_provider=P.MockVideoProvider(storage),
+        llm_provider=P.MockLLMProvider(),
+    )
+    await pipeline.run(make_request(logo_image=logo))
+
+    assert seen, "no image was generated"
+    for roles in seen:
+        assert roles == ["human model", "product"], f"the logo was uploaded again: {roles}"

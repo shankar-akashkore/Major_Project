@@ -16,13 +16,14 @@
  * from a discovery into something visible while it is happening.
  */
 
+import { usePathname } from "next/navigation";
 import { createContext, useContext, type ReactNode } from "react";
 
 import { getBudget, getConfig } from "@/lib/api.ts";
 import type { AppConfig, ProviderMode } from "@/lib/contract.ts";
 import { useAsync, usePolled } from "@/lib/hooks.ts";
-import { budgetView, percent, usd } from "@/lib/presentation.ts";
-import { Badge, Meter, NavLink, type Tone } from "./ui.tsx";
+import { usdThreshold } from "@/lib/presentation.ts";
+import { Badge, NavLink, type Tone } from "./ui.tsx";
 
 const ConfigContext = createContext<AppConfig | null>(null);
 
@@ -45,76 +46,128 @@ const MODE_MEANING: Record<ProviderMode, string> = {
   live: "Real provider calls. Every generation on this page cost money.",
 };
 
+/**
+ * Routes that draw their own chrome and must not be wrapped.
+ *
+ * The landing page is a full-bleed black canvas with its own header — dropping it
+ * inside the app's centred column would box it in, and it has no business showing a
+ * budget meter to someone who has not started a job. Listing it here also keeps it
+ * genuinely static: `AppShell` is where the config and budget polling lives, so a
+ * bare route never mounts those hooks and never calls the API at all. The landing
+ * page therefore renders with the backend switched off, which is what you want from
+ * the one page a stranger sees first.
+ *
+ * That page is the root now, and the wizard moved to `/console`. Someone arriving
+ * at this project with no context should meet the argument for it, not a form.
+ */
+const BARE_ROUTES = ["/"];
+
 export function Shell({ children }: { children: ReactNode }) {
+  const pathname = usePathname();
+  if (BARE_ROUTES.includes(pathname)) return <>{children}</>;
+  return <AppShell>{children}</AppShell>;
+}
+
+function AppShell({ children }: { children: ReactNode }) {
+  const pathname = usePathname();
   const config = useAsync(getConfig, []);
   // Ten seconds, not five: a job that spends takes tens of seconds, so this is
   // responsive enough to watch the money move, and half the idle chatter.
   const budget = usePolled(getBudget, 10_000);
   const mode = config.data?.provider_mode ?? null;
-  const view = budget.data ? budgetView(budget.data) : null;
 
   return (
     <ConfigContext.Provider value={config.data}>
+      {/* Reads the document scroll, so it sits outside the centred column. */}
+      <div className="scroll-progress" aria-hidden>
+        <i />
+      </div>
+
       <div className="mx-auto max-w-6xl px-5 py-6">
-        <header className="mb-6 border-b border-zinc-800 pb-4">
+        <header className="mb-8 border-b border-[var(--rule)] pb-5">
           <div className="flex flex-wrap items-center justify-between gap-4">
-            <div className="flex items-center gap-4">
-              <span className="text-sm font-semibold text-zinc-100">
+            <div className="flex items-center gap-5">
+              <span className="serif text-[17px] text-[var(--ink)]">
                 Multi-candidate ad generation
               </span>
               <nav className="flex items-center gap-1">
-                <NavLink href="/">New job</NavLink>
-                <NavLink href="/jobs">Jobs</NavLink>
+                <NavLink href="/console" active={pathname === "/console"}>
+                  New job
+                </NavLink>
+                <NavLink href="/jobs" active={pathname.startsWith("/jobs")}>
+                  Jobs
+                </NavLink>
               </nav>
             </div>
 
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-5">
+              {/*
+                Live mode is inverted and carries no glyph. Its tone is `bad`, which
+                is right — it is the dangerous one — but `bad`'s glyph is ✕, and
+                "✕ live mode" reads as live mode being *off*. Someone who believes
+                they are in mock mode while the ledger is spending is the exact
+                failure this badge exists to prevent, so the one treatment it must
+                never have is one that can be read as "not on".
+              */}
               {mode ? (
-                <Badge tone={MODE_TONE[mode]} title={MODE_MEANING[mode]}>
+                <Badge
+                  tone={MODE_TONE[mode]}
+                  title={MODE_MEANING[mode]}
+                  solid={mode === "live"}
+                  glyph={mode === "live" ? null : undefined}
+                >
                   {mode} mode
                 </Badge>
               ) : null}
 
-              {view && budget.data ? (
-                <div className="w-44">
-                  <div className="mb-1 flex items-baseline justify-between text-[11px] text-zinc-400">
-                    <span>{usd(view.remaining)} left</span>
-                    <span className="tabular">{percent(view.fractionUsed)} used</span>
-                  </div>
-                  <Meter
-                    fraction={view.fractionUsed}
-                    tone={view.level === "spent" ? "bad" : view.level === "tight" ? "warn" : "good"}
-                  />
-                  <p className="mt-1 text-[10px] text-zinc-500 tabular">
-                    {usd(budget.data.spent_usd)} of {usd(budget.data.total_budget_usd)} · cap{" "}
-                    {usd(budget.data.per_job_cap_usd)}/job
-                  </p>
-                </div>
+              {/*
+                The cap, and deliberately not the balance.
+
+                This used to be a meter: remaining, percent used, and spent-of-total.
+                All three describe the account rather than the job, and on a screen
+                someone else is watching they answer a question nobody asked — how
+                much money is left — while the thing worth showing is that a ceiling
+                exists at all.
+
+                Nothing about enforcement changes. The cost governor reads the ledger
+                server-side and refuses over either limit, with a message naming the
+                cap it hit; this was only ever the readout. A per-job cost still
+                appears on every job, where it is about that job's spend.
+              */}
+              {budget.data ? (
+                <p
+                  className="text-[10px] text-[var(--l-3)] tabular"
+                  title="Every job is refused above this, and the run stops rather than degrading."
+                >
+                  cap {usdThreshold(budget.data.per_job_cap_usd)}/job
+                </p>
               ) : null}
             </div>
           </div>
 
-          {/* The settings banner verbatim: it names the providers actually wired up,
-              which is the difference between "live mode" and "live mode, but the
-              video provider fell back". */}
+          {/* The mode banner, as the config endpoint chooses to publish it. In live
+              mode that is the spend warning and the per-job cap; the model
+              identifiers and the account total stay in the operator's copy, which
+              prints to the terminal on startup. See `Settings.describe_public`. */}
           {config.data ? (
-            <p className="mt-3 font-mono text-[11px] leading-relaxed text-zinc-500">
+            <p className="mt-4 text-[11px] leading-relaxed text-[var(--l-3)]">
               {config.data.banner}
             </p>
           ) : null}
           {config.error ? (
-            <p className="mt-3 text-[11px] text-bad-400">
-              {config.error} — the pages below will be empty until it is.
+            <p className="mt-4 flex gap-2 text-[11px] text-[var(--ink)]">
+              <span aria-hidden>✕</span>
+              <span>{config.error} — the pages below will be empty until it is.</span>
             </p>
           ) : null}
         </header>
 
         <main>{children}</main>
 
-        <footer className="mt-12 border-t border-zinc-800 pt-4 text-[11px] leading-relaxed text-zinc-600">
+        <footer className="mt-16 border-t border-[var(--rule)] pt-5 text-[11px] leading-relaxed text-[var(--l-3)]">
           Candidate scores are predictions, not measurements. Anything marked{" "}
-          <span className="text-warn-400">▲</span> is a placeholder or an unverified check — see{" "}
-          <span className="font-mono">docs/ui-protocol.md</span>.
+          <span className="text-[var(--ink)]">▲</span> is a placeholder or an unverified check — see{" "}
+          <span className="text-[var(--l-2)]">docs/ui-protocol.md</span>.
         </footer>
       </div>
     </ConfigContext.Provider>

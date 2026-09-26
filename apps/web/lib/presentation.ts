@@ -68,6 +68,20 @@ export function usd(value: number | null | undefined): string {
   return `$${value.toFixed(4)}`;
 }
 
+/**
+ * Money, at two decimal places — for a configured ceiling, never for a measurement.
+ *
+ * `usd` carries four decimals to keep a real $0.0004 charge distinguishable from a
+ * free run. A cap is not a charge: it is a round number somebody typed into config,
+ * and it is never the thing being distinguished — $2.5000 reads as a rounding bug
+ * in a header whose whole job is to be believed at a glance. Anything that was
+ * actually spent or actually billed still goes through `usd`.
+ */
+export function usdThreshold(value: number | null | undefined): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) return "—";
+  return `$${value.toFixed(2)}`;
+}
+
 /** Seconds, with the unit attached, because "9" alone has been read as frames. */
 export function seconds(value: number | null | undefined): string {
   if (value === null || value === undefined || !Number.isFinite(value)) return "—";
@@ -213,6 +227,13 @@ export type GateSummary = {
   /** Checks that ran and failed. */
   failed: GateCheck[];
   /**
+   * Failed checks that could not reject, because the thing they compared against is
+   * not trustworthy. Distinct from `pending`: these ran and the number is real. The
+   * case is palette adherence measured against a palette read off a whole product
+   * photograph, which describes that photo's backdrop rather than the brand.
+   */
+  advisory: GateCheck[];
+  /**
    * Checks that did not run. These *passed* in the pipeline, and saying so without
    * saying they did not run would be claiming a verification.
    *
@@ -247,6 +268,7 @@ export function gateSummary(gate: GateResult | null | undefined): GateSummary | 
   const pending = checks.filter((c) => !c.implemented);
   const ran = checks.filter((c) => c.implemented);
   const failed = ran.filter((c) => !c.passed);
+  const advisory = failed.filter((c) => c.advisory);
   const passed = ran.filter((c) => c.passed);
   const identityRan = ran.filter((c) => IDENTITY_CHECKS.includes(c.name));
   const identityPending = pending.some((c) => IDENTITY_CHECKS.includes(c.name));
@@ -262,7 +284,7 @@ export function gateSummary(gate: GateResult | null | undefined): GateSummary | 
           // and "0.294 vs 0.160" reads as a shortfall when it is an excess.
           `${humanise(c.name)} ${num(c.value)} ${c.higher_is_better ? "under" : "over"} ${num(
             c.threshold,
-          )}`,
+          )}${c.advisory ? " (advisory)" : ""}`,
       )
       .join(", ");
   } else if (pending.length > 0) {
@@ -277,6 +299,7 @@ export function gateSummary(gate: GateResult | null | undefined): GateSummary | 
     pending,
     identityPending,
     verifiedIdentity,
+    advisory,
     text,
   };
 }
@@ -306,6 +329,35 @@ export function progressFrom(events: StageEvent[]): Progress {
   const within = Number.isFinite(last.progress) ? last.progress : 0;
   const fraction = Math.min(1, Math.max(0, (index + within) / total));
   return { stage: last.stage, fraction, label: humanise(last.stage) };
+}
+
+/**
+ * A stage event's identity, for de-duplication.
+ *
+ * Events carry no id of their own, so two sources describing the same moment — the
+ * SSE history replay and the live tail, or the stream and the saved record — are
+ * matched on content.
+ */
+export function eventKey(event: StageEvent): string {
+  return `${event.stage}|${event.state}|${event.at}|${event.message}`;
+}
+
+/**
+ * The timeline to render: the saved history, plus whatever the stream has ahead of it.
+ *
+ * The stream used to be the only source, which meant a *reload* of a finished job
+ * drew nothing — the stream is deliberately not opened once a job is terminal, so
+ * `events` stayed empty and a job that had run five candidates rendered as "0%"
+ * with every stage chip dim and an empty log. The record was carrying the whole
+ * history the entire time.
+ *
+ * The record leads because it is ordered and authoritative; the stream can only be
+ * ahead of it, never disagree with it, so its extras append rather than interleave.
+ */
+export function mergeEvents(history: StageEvent[], streamed: StageEvent[]): StageEvent[] {
+  if (history.length === 0) return streamed;
+  const known = new Set(history.map(eventKey));
+  return [...history, ...streamed.filter((event) => !known.has(eventKey(event)))];
 }
 
 /** Whether a job is still moving, which decides whether to keep the stream open. */
@@ -373,6 +425,32 @@ export function budgetView(status: BudgetStatus): BudgetView {
 /** Candidate slot letters, matching `ShotBrief.slot_label`: 0 -> "A". */
 export function slotLetter(index: number): string {
   return String.fromCharCode("A".charCodeAt(0) + index);
+}
+
+/**
+ * The address as the closing slate will draw it. Mirrors `AdJobRequest.website_display`.
+ *
+ * `https://www.acme.com/collections/aurora` is drawn `acme.com`: the scheme and the
+ * path carry no brand and cost width the address needs, and only the leading `www.`
+ * goes — `shop.acme.co.uk` is a real address a viewer would type.
+ *
+ * Recomputed here rather than shown as typed, because the field accepts a full URL
+ * and draws something shorter. A hint that echoed the input back would be telling
+ * the user the slate says something it does not, and the first they would learn
+ * otherwise is on a rendered mp4 that cost money.
+ *
+ * The server is authoritative; this is the preview. `test_the_slate_draws_the_host_
+ * and_nothing_else` in `tests/test_endcard.py` runs the same table.
+ */
+export function websiteDisplay(raw: string): string {
+  // Split on the *first* "://" and keep the rest, which is what the Python does.
+  // `split("://").pop()` looks equivalent and is not: it would take the last
+  // segment of a doubled scheme rather than everything after the first.
+  const trimmed = raw.trim();
+  const scheme = trimmed.indexOf("://");
+  const after = scheme === -1 ? trimmed : trimmed.slice(scheme + 3);
+  const host = after.split(/[/?#]/)[0] ?? "";
+  return host.toLowerCase().startsWith("www.") ? host.slice(4) : host;
 }
 
 // --- Platform geometry ---------------------------------------------------

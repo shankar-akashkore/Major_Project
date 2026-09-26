@@ -42,6 +42,7 @@ import type {
 import { DeliveryPanel } from "./DeliveryPanel.tsx";
 import { ImageStage } from "./ImageStage.tsx";
 import { ScoreChip, ScoreDetail } from "./Score.tsx";
+import { Badge } from "./ui.tsx";
 import { VideoStage } from "./VideoStage.tsx";
 
 const html = (element: React.ReactElement) => renderToStaticMarkup(element);
@@ -490,6 +491,87 @@ test("no component formats money itself", () => {
     }
   }
   assert.deepEqual(offenders, []);
+});
+
+/*
+ * The live-mode badge.
+ *
+ * `MODE_TONE` maps live to `bad`, which is right — it is the mode that spends real
+ * money. But `bad`'s glyph is ✕, and for one release "✕ live mode" shipped in the
+ * header, where it reads as live mode being *switched off*. Someone believing they
+ * are in mock mode while the ledger drains is the single failure this badge exists
+ * to prevent, so the misreading is not cosmetic.
+ */
+test("live mode never renders the glyph that means failed", () => {
+  const html = renderToStaticMarkup(
+    <Badge tone="bad" solid glyph={null}>
+      live mode
+    </Badge>,
+  );
+  assert.ok(!html.includes("✕"), `live mode must not carry ✕: ${html}`);
+  assert.ok(html.includes("live mode"), "the badge must still say what mode it is in");
+});
+
+test("live mode is the loudest badge on the page", () => {
+  const live = renderToStaticMarkup(
+    <Badge tone="bad" solid glyph={null}>
+      live mode
+    </Badge>,
+  );
+  const mock = renderToStaticMarkup(<Badge tone="warn">mock mode</Badge>);
+
+  // Asserted as "live is the only filled badge", not as a colour. The palette has
+  // already moved once — inverted white, then solid red — and a test naming the
+  // token fails on a repaint while saying nothing about whether live still shouts.
+  const filled = (html: string) => /\bbg-(?!transparent)[\w[\]()-]+/.test(html);
+  assert.ok(filled(live), `live must be a filled plate: ${live}`);
+  assert.ok(!filled(mock), `mock must stay an outline: ${mock}`);
+});
+
+test("every tone is still legible with the colour taken away", () => {
+  // The point of the border/glyph encoding: strip the hue and the badge still
+  // says which verdict it is. If this ever fails, the palette has quietly become
+  // the only carrier again and green-beside-red stops being safe.
+  const shapes = new Set<string>();
+  for (const tone of ["good", "warn", "bad", "info"] as const) {
+    const html = renderToStaticMarkup(<Badge tone={tone}>x</Badge>);
+    const glyph = html.match(/leading-none">(.)</)?.[1] ?? "";
+    const border = html.match(/border-(2|dashed|dotted)/)?.[1] ?? "solid";
+    assert.notEqual(glyph, "", `${tone} must carry a glyph, not just a colour`);
+    shapes.add(`${glyph}/${border}`);
+  }
+  assert.equal(shapes.size, 4, `each tone needs its own shape, got ${[...shapes]}`);
+});
+
+test("a failed thing still carries the cross", () => {
+  const html = renderToStaticMarkup(<Badge tone="bad">failed</Badge>);
+  assert.ok(html.includes("✕"), `bad still means failed elsewhere: ${html}`);
+});
+
+test("no component hardcodes a colour outside the semantic scales", () => {
+  // How the "animated" chip stayed green through the pass that took every other hue
+  // out of the app: it was `bg-emerald-500`, and the palette lives in `@theme` as
+  // `zinc`, `good`, `warn`, `bad` and `sky`. Remapping those could not reach a colour
+  // that had never been part of the system, so nothing failed and nothing looked
+  // wrong until someone opened a job with a promoted candidate.
+  //
+  // A hardcoded hue is invisible to a palette change by definition, which is the
+  // whole argument for this check being on the source rather than on a rendering.
+  const banned =
+    /\b(?:text|bg|border|ring|decoration|from|to|via|outline|fill|stroke)-(?:red|green|blue|emerald|amber|yellow|orange|teal|cyan|indigo|violet|purple|pink|rose|lime|fuchsia|slate|gray|neutral|stone)-\d/;
+  const roots = ["components", "app"].map((dir) => path.join(HERE, "..", dir));
+  const offenders: string[] = [];
+  for (const root of roots) {
+    for (const file of sources(root)) {
+      const found = readFileSync(file, "utf8").match(banned);
+      if (found) offenders.push(`${path.relative(HERE, file)}: ${found[0]}`);
+    }
+  }
+  assert.deepEqual(
+    offenders,
+    [],
+    "use good/warn/bad (verdicts) or zinc (structure); those follow the theme",
+  );
 });
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));

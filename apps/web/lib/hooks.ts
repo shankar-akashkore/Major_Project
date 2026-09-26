@@ -14,7 +14,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { ApiError, eventsUrl, getJob } from "./api.ts";
 import type { JobRecord, StageEvent } from "./contract.ts";
-import { isTerminal } from "./presentation.ts";
+import { eventKey, isTerminal, mergeEvents } from "./presentation.ts";
 
 export type Async<T> = {
   data: T | null;
@@ -92,7 +92,15 @@ export function useJobStream(jobId: string): JobStream {
 
   const refresh = useCallback(async () => {
     try {
-      setRecord(await getJob(jobId));
+      const next = await getJob(jobId);
+      setRecord(next);
+      // Seed the timeline from the record, not only from the stream. The stream is
+      // deliberately not opened for a job that has already stopped moving, so
+      // without this a reload of a finished job showed no stages at all — see
+      // `mergeEvents`.
+      const history = next.events ?? [];
+      for (const event of history) seen.current.add(eventKey(event));
+      setEvents((previous) => mergeEvents(history, previous));
       setError(null);
     } catch (cause) {
       setError(cause instanceof ApiError ? cause.message : String(cause));
@@ -116,7 +124,7 @@ export function useJobStream(jobId: string): JobStream {
         const event = JSON.parse(message.data) as StageEvent;
         // The history replay can overlap the live tail, so events are de-duplicated
         // on their own content rather than trusted to arrive once.
-        const key = `${event.stage}|${event.state}|${event.at}|${event.message}`;
+        const key = eventKey(event);
         if (seen.current.has(key)) return;
         seen.current.add(key);
         setEvents((previous) => [...previous, event]);

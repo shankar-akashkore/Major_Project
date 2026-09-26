@@ -298,7 +298,7 @@ async def get_config(svc: Svc) -> AppConfig:
         image_provider=settings.image_provider,
         video_provider=settings.video_provider,
         golden_set=settings.golden_set,
-        banner=settings.describe(),
+        banner=settings.describe_public(),
         platforms={p: PlatformProfile.of(p) for p in Platform},
     )
 
@@ -427,6 +427,7 @@ async def create_job(
     product_name: str = Form(...),
     caption: str = Form(""),
     cta_text: str = Form(""),
+    website_url: str = Form(""),
     additional_prompt: str = Form(""),
     negative_constraints: str = Form(""),
     vertical: str = Form("other"),
@@ -470,6 +471,7 @@ async def create_job(
             product_name=product_name,
             caption=caption,
             cta_text=cta_text,
+            website_url=website_url,
             additional_prompt=additional_prompt,
             negative_constraints=negative_constraints,
             vertical=vertical,

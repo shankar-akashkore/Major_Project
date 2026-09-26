@@ -204,11 +204,52 @@ class Mood(str, Enum):
 
 
 class BackgroundTreatment(str, Enum):
+    """What is behind the subject.
+
+    The first six are studio sweeps: a paper roll of one known colour, lit flat.
+    The last four decide their colour somewhere else — from the brand palette
+    (``seamless_color``), from a gradient, or from a real place.  That split is
+    why ``sweep_colour_for`` returns ``None`` rather than a default.
+    """
+
     STUDIO_WHITE = "studio_white"
+    STUDIO_PURPLE = "studio_purple"
+    STUDIO_BLUE = "studio_blue"
+    STUDIO_CARBON_BLACK = "studio_carbon_black"
+    STUDIO_GREEN = "studio_green"
+    STUDIO_CORAL = "studio_coral"
     SEAMLESS_COLOR = "seamless_color"
     SOFT_GRADIENT = "soft_gradient"
     LIFESTYLE_SCENE = "lifestyle_scene"
     OUTDOOR_NATURAL = "outdoor_natural"
+
+
+#: The one colour each named studio sweep stands for.
+#:
+#: These names exist *because* they name a specific paint, so here the hex is the
+#: definition rather than a default — ``ThemeSpec`` writes it onto every job that
+#: picks one, overriding whatever the caller sent.  The treatments left out of
+#: this table get their colour from somewhere the name cannot know: the brand
+#: palette, a gradient, or a real room.
+#:
+#: ``STUDIO_WHITE``'s brief phrase deliberately does not interpolate its hex.
+#: "white studio backdrop" already says it, and adding "#ffffff" to the prompt
+#: would change ``prompt_sha256`` on every frozen frame for no gain in what the
+#: generator draws.
+_STUDIO_SWEEP_HEX: dict[BackgroundTreatment, str] = {
+    BackgroundTreatment.STUDIO_WHITE: "#ffffff",
+    BackgroundTreatment.STUDIO_PURPLE: "#87637b",
+    BackgroundTreatment.STUDIO_BLUE: "#b8cce0",
+    BackgroundTreatment.STUDIO_CARBON_BLACK: "#1c1c1c",
+    BackgroundTreatment.STUDIO_GREEN: "#a9d39e",
+    BackgroundTreatment.STUDIO_CORAL: "#e8c3b0",
+}
+
+
+def sweep_colour_for(background: BackgroundTreatment) -> str | None:
+    """The hex a named studio sweep stands for, or ``None`` when the treatment's
+    colour is not fixed by its name."""
+    return _STUDIO_SWEEP_HEX.get(background)
 
 
 # --- Design-space axes: varied ACROSS candidates by the sampler -------------

@@ -6,9 +6,9 @@
  * Three decisions here come from the schema rather than from taste:
  *
  * **Camera angle is not asked for.** It is the axis the design-space sampler varies
- * across the three candidates, which is what makes them genuinely different rather
- * than three attempts at one idea. Offering it as a control would quietly turn the
- * diversity guarantee off, so it appears only as an explicit "lock all three",
+ * across the candidates, which is what makes them genuinely different rather than
+ * several attempts at one idea. Offering it as a control would quietly turn the
+ * diversity guarantee off, so it appears only as an explicit "lock them all",
  * under Advanced, where choosing it is a decision rather than a default.
  *
  * **Aspect ratio is not asked for either.** It follows from the platform, and the
@@ -43,11 +43,13 @@ import {
   CAMERA_ANGLE_VALUES,
   DEFAULT_CANDIDATE_COUNT,
   DEFAULT_VIDEO_COUNT,
+  END_CARD_SECONDS,
   MAX_DURATION_S,
   MIN_DURATION_S,
   MOOD_VALUES,
   PLATFORM_VALUES,
   PRODUCT_SCALE_VALUES,
+  STUDIO_SWEEP_HEX,
   VERTICAL_VALUES,
   type BackgroundTreatment,
   type CameraAngle,
@@ -56,6 +58,7 @@ import {
   type ProductScale,
   type Vertical,
 } from "@/lib/contract.ts";
+import { websiteDisplay } from "@/lib/presentation.ts";
 import { safeAreaSummary } from "@/lib/presentation.ts";
 
 export default function NewJobPage() {
@@ -69,6 +72,7 @@ export default function NewJobPage() {
   const [productName, setProductName] = useState("");
   const [caption, setCaption] = useState("");
   const [cta, setCta] = useState("Shop now");
+  const [website, setWebsite] = useState("");
   const [additional, setAdditional] = useState("");
   const [negative, setNegative] = useState("");
 
@@ -94,6 +98,25 @@ export default function NewJobPage() {
 
   const geometry = config?.platforms?.[platform];
 
+  // A named sweep carries its own colour; the rest get theirs from the palette, a
+  // gradient or a real place, so there is nothing to show a swatch for.
+  const sweepHex = STUDIO_SWEEP_HEX[background];
+  const backgroundHint = sweepHex
+    ? `Seamless paper sweep, ${sweepHex}.`
+    : "Colour comes from the brand palette or the scene.";
+
+  // The slate is carved out of the duration, not added to it, so the arithmetic is
+  // shown rather than left for the user to discover in the delivered file.
+  const hasEndCard = Boolean(website.trim() || logo);
+  // Previewed rather than echoed: the slate draws the host alone, beside a search
+  // glyph, so a hint repeating what was typed would misdescribe the frame.
+  const shown = websiteDisplay(website);
+  const endCardHint = hasEndCard
+    ? `Closing frame: logo above ${shown ? `“${shown}”` : "your address"} on black. The ad runs ${(
+        duration - END_CARD_SECONDS
+      ).toFixed(1)}s, then ${END_CARD_SECONDS.toFixed(1)}s of card — ${duration}s in total.`
+    : "Drawn on a closing frame under your logo, domain only. Leave empty and the ad runs full length.";
+
   /** Everything standing between this form and a job, most fixable first. */
   const blockers = useMemo(() => {
     const out: string[] = [];
@@ -116,6 +139,7 @@ export default function NewJobPage() {
     form.set("product_name", productName);
     form.set("caption", caption);
     form.set("cta_text", cta);
+    form.set("website_url", website);
     form.set("additional_prompt", additional);
     form.set("negative_constraints", negative);
     form.set("vertical", vertical);
@@ -154,12 +178,13 @@ export default function NewJobPage() {
 
   return (
     <div className="space-y-8">
-      <div className="flex flex-wrap items-end justify-between gap-4">
+      <div className="rise flex flex-wrap items-end justify-between gap-5">
         <div>
-          <h1 className="text-xl font-semibold text-zinc-100">New job</h1>
-          <p className="mt-1 max-w-2xl text-sm text-zinc-400">
-            Three image candidates from three well-separated design points, ranked as images, then
-            each animated into an {MIN_DURATION_S}–{MAX_DURATION_S} second video and ranked again.
+          <h1 className="serif text-[2.5rem] leading-none text-[var(--ink)]">New job</h1>
+          <p className="mt-4 max-w-[62ch] text-[13px] leading-relaxed text-[var(--l-2)]">
+            {DEFAULT_CANDIDATE_COUNT} image candidates from {DEFAULT_CANDIDATE_COUNT}{" "}
+            well-separated design points, ranked as images. Only the {DEFAULT_VIDEO_COUNT} that earn
+            it are animated into {MIN_DURATION_S}–{MAX_DURATION_S} second videos and ranked again.
           </p>
         </div>
         <Button variant="ghost" onClick={runDemo} disabled={busy !== null}>
@@ -171,7 +196,7 @@ export default function NewJobPage() {
 
       <div className="grid gap-6 lg:grid-cols-[1.4fr_1fr]">
         <div className="space-y-6">
-          <Card className="p-4">
+          <Card className="rise p-5">
             <SectionTitle hint="PNG or JPEG">References</SectionTitle>
             <div className="grid gap-4 sm:grid-cols-3">
               <FilePicker label="Human model" required file={human} onPick={setHuman} />
@@ -186,7 +211,7 @@ export default function NewJobPage() {
             </div>
           </Card>
 
-          <Card className="p-4">
+          <Card className="rise p-5">
             <SectionTitle>Copy</SectionTitle>
             <div className="space-y-4">
               <Field label="Product name" required>
@@ -214,6 +239,14 @@ export default function NewJobPage() {
                   />
                 </Field>
               </div>
+              <Field label="Website" hint={endCardHint}>
+                <TextInput
+                  value={website}
+                  maxLength={200}
+                  placeholder="acme.com"
+                  onChange={(event) => setWebsite(event.target.value)}
+                />
+              </Field>
               <Field label="Additional direction" hint="Folded into each candidate's shot brief.">
                 <TextArea
                   value={additional}
@@ -234,7 +267,7 @@ export default function NewJobPage() {
             </div>
           </Card>
 
-          <Card className="p-4">
+          <Card className="rise p-5">
             <SectionTitle>Targeting and look</SectionTitle>
             <div className="grid gap-4 sm:grid-cols-2">
               <Field label="Product vertical" hint="A predictor feature, not a label.">
@@ -270,12 +303,15 @@ export default function NewJobPage() {
               <Field label="Mood" hint="Drives lighting and motion energy.">
                 <Select value={mood} onChange={setMood} options={MOOD_VALUES} />
               </Field>
-              <Field label="Background">
-                <Select
-                  value={background}
-                  onChange={setBackground}
-                  options={BACKGROUND_TREATMENT_VALUES}
-                />
+              <Field label="Background" hint={backgroundHint}>
+                <div className="flex items-center gap-2">
+                  <Swatch colour={sweepHex} />
+                  <Select
+                    value={background}
+                    onChange={setBackground}
+                    options={BACKGROUND_TREATMENT_VALUES}
+                  />
+                </div>
               </Field>
               <Field
                 label="Brand palette"
@@ -302,13 +338,13 @@ export default function NewJobPage() {
             <button
               type="button"
               onClick={() => setAdvanced((open) => !open)}
-              className="mt-4 text-xs text-zinc-400 underline decoration-dotted hover:text-zinc-200"
+              className="mt-3 inline-flex min-h-11 items-center text-[11px] tracking-[0.06em] text-[var(--l-3)] underline decoration-dotted underline-offset-4 transition-colors hover:text-[var(--ink)]"
             >
               {advanced ? "Hide" : "Show"} advanced
             </button>
 
             {advanced ? (
-              <div className="mt-4 space-y-4 border-t border-zinc-800 pt-4">
+              <div className="mt-5 space-y-5 border-t border-[var(--rule)] pt-5">
                 <Field
                   label="Seed"
                   hint={`Candidate i uses seed + i, so runs are reproducible. ${DEFAULT_CANDIDATE_COUNT} candidates.`}
@@ -322,20 +358,21 @@ export default function NewJobPage() {
                 </Field>
                 <div className="space-y-2">
                   <Checkbox checked={lockAngle} onChange={setLockAngle}>
-                    Lock the camera angle across all three candidates
+                    Lock the camera angle across all {DEFAULT_CANDIDATE_COUNT} candidates
                   </Checkbox>
                   {lockAngle ? (
                     <>
                       <Select value={angle} onChange={setAngle} options={CAMERA_ANGLE_VALUES} />
                       <Caveat>
-                        Angle is the sampler&apos;s main diversity axis. Locking it makes the three
-                        candidates variations on one shot, which is a weaker comparison.
+                        Angle is the sampler&apos;s main diversity axis. Locking it makes the{" "}
+                        {DEFAULT_CANDIDATE_COUNT} candidates variations on one shot, which is a
+                        weaker comparison.
                       </Caveat>
                     </>
                   ) : (
-                    <p className="text-[11px] text-zinc-500">
-                      Left unlocked, the sampler varies angle across the three candidates and
-                      reports the diversity it achieved.
+                    <p className="text-[11px] leading-relaxed text-[var(--l-3)]">
+                      Left unlocked, the sampler varies angle across the {DEFAULT_CANDIDATE_COUNT}{" "}
+                      candidates and reports the diversity it achieved.
                     </p>
                   )}
                 </div>
@@ -345,9 +382,11 @@ export default function NewJobPage() {
         </div>
 
         <div className="space-y-6">
-          <Card className="border-warn-500/30 p-4">
+          {/* Dashed, like every other "this is not what it appears to be" surface in
+              the app — the one panel on the page that is a gate rather than a form. */}
+          <Card className="rise border-dashed border-[var(--l-4)] p-5">
             <SectionTitle>Rights</SectionTitle>
-            <p className="mb-3 text-xs leading-relaxed text-zinc-400">
+            <p className="mb-4 text-[11px] leading-relaxed text-[var(--l-3)]">
               This uploads a person&apos;s likeness to a generative model. Both attestations are
               required and the job is refused without them.
             </p>
@@ -361,30 +400,61 @@ export default function NewJobPage() {
             </div>
           </Card>
 
-          <Card className="p-4">
+          <Card className="rise p-5">
             <SectionTitle>Submit</SectionTitle>
             {blockers.length > 0 ? (
-              <p className="mb-3 text-xs leading-relaxed text-zinc-400">
+              <p className="mb-4 text-[11px] leading-relaxed text-[var(--l-3)]">
                 Still needed: {blockers.join(", ")}.
               </p>
             ) : (
-              <p className="mb-3 text-xs text-zinc-400">
-                {DEFAULT_CANDIDATE_COUNT} images → {DEFAULT_CANDIDATE_COUNT} videos at {duration}s,{" "}
+              /* `DEFAULT_VIDEO_COUNT`, not the candidate count this used to read from.
+                 The form has always submitted two videos; the panel above the submit
+                 button claimed five, which overstated the spend at the last moment
+                 before someone commits to it. */
+              <p className="mb-4 text-[11px] leading-relaxed text-[var(--l-3)]">
+                {DEFAULT_CANDIDATE_COUNT} images → {DEFAULT_VIDEO_COUNT} videos at {duration}s,{" "}
                 {geometry?.aspect_ratio ?? "platform ratio"}.
               </p>
             )}
             <Button type="button" onClick={submit} disabled={blockers.length > 0 || busy !== null}>
               {busy === "job" ? "Starting…" : "Generate candidates"}
             </Button>
-            <div className="mt-4 flex flex-wrap gap-1.5">
+            <div className="mt-5 flex flex-wrap gap-1.5">
               <Badge>{DEFAULT_CANDIDATE_COUNT} images</Badge>
-              <Badge>{DEFAULT_CANDIDATE_COUNT} videos</Badge>
+              <Badge>{DEFAULT_VIDEO_COUNT} videos</Badge>
               <Badge>ranked twice</Badge>
             </div>
           </Card>
         </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * The colour a named studio sweep stands for, beside the name.
+ *
+ * A native `<option>` cannot be reliably styled across browsers, so the swatch sits
+ * outside the select rather than inside it.  Treatments with no fixed colour get an
+ * empty dashed chip instead of nothing, because collapsing the chip would shift the
+ * select sideways every time the choice changes.
+ *
+ * This is the one place on the page that is deliberately not monochrome, and it is
+ * not an oversight. `#87637b` is what the generator will actually paint behind the
+ * product; rendering it as a grey would be a screen telling a pleasant lie about the
+ * data underneath it, which is the specific failure `docs/ui-protocol.md` exists to
+ * prevent. The chrome is black and white — the measurements are whatever they are.
+ */
+function Swatch({ colour }: { colour: string | undefined }) {
+  return (
+    <span
+      aria-hidden
+      title={colour ?? "no fixed colour"}
+      className={`size-7 shrink-0 rounded-md border ${
+        colour ? "border-[var(--rule)]" : "border-dashed border-[var(--l-4)]"
+      }`}
+      style={colour ? { backgroundColor: colour } : undefined}
+    />
   );
 }
 
@@ -404,20 +474,24 @@ function FilePicker({
   const preview = useMemo(() => (file ? URL.createObjectURL(file) : null), [file]);
   return (
     <Field label={label} hint={hint} required={required}>
-      <div className="space-y-2">
-        <div className="flex aspect-4/5 items-center justify-center overflow-hidden rounded-md border border-dashed border-zinc-700 bg-zinc-950">
+      <div className="space-y-2.5">
+        <div
+          className={`flex aspect-4/5 items-center justify-center overflow-hidden rounded-md border bg-transparent ${
+            preview ? "border-[var(--l-4)]" : "border-dashed border-[var(--l-4)]"
+          }`}
+        >
           {preview ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img src={preview} alt={label} className="size-full object-cover" />
           ) : (
-            <span className="text-[11px] text-zinc-600">none</span>
+            <span className="text-[11px] text-[var(--l-3)]">none</span>
           )}
         </div>
         <input
           type="file"
           accept="image/png,image/jpeg,image/webp"
           onChange={(event) => onPick(event.target.files?.[0] ?? null)}
-          className="w-full text-[11px] text-zinc-400 file:mr-2 file:rounded file:border-0 file:bg-zinc-800 file:px-2 file:py-1 file:text-zinc-200"
+          className="w-full text-[11px] text-[var(--l-3)] file:mr-2 file:min-h-8 file:rounded file:border file:border-[var(--l-4)] file:bg-transparent file:px-2.5 file:text-[var(--l-2)] hover:file:border-[var(--ink)] hover:file:text-[var(--ink)]"
         />
       </div>
     </Field>

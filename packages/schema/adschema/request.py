@@ -33,6 +33,7 @@ from .enums import (
     Tier,
     Vertical,
     default_scale_for,
+    sweep_colour_for,
 )
 
 HEX_COLOR = re.compile(r"^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$")
@@ -43,6 +44,18 @@ HEX_COLOR = re.compile(r"^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$")
 #: ``VideoProvider.supports_duration``.
 MIN_DURATION_S = 8.0
 MAX_DURATION_S = 10.0
+
+#: How long the closing brand slate holds, when there is one.
+#:
+#: Subtracted from the ad, never added to it.  ``duration_seconds`` is what the
+#: viewer receives, so a 10 s job is 8.5 s of advertisement followed by 1.5 s of
+#: logo and website — not 11.5 s of file.  Reading it the other way would put the
+#: delivered clip outside the 8-10 s window the project commits to, and that
+#: window is a promise about the artefact rather than about the generation.
+#:
+#: 1.5 s is long enough to read a URL and short enough not to read as dead air on
+#: a platform where watch-through is the metric.
+END_CARD_SECONDS = 1.5
 
 #: Image candidates generated per job, and how many of them are animated.
 #:
@@ -84,7 +97,10 @@ class ThemeSpec(BaseModel):
     background: BackgroundTreatment = BackgroundTreatment.SOFT_GRADIENT
     background_color: str | None = Field(
         default=None,
-        description="Only meaningful when background is seamless_color.",
+        description=(
+            "The backdrop colour. Supply it for seamless_color; the named studio "
+            "sweeps set it themselves, and the other treatments ignore it."
+        ),
     )
     palette_auto_extracted: bool = Field(
         default=False,
@@ -107,8 +123,15 @@ class ThemeSpec(BaseModel):
         return v
 
     @model_validator(mode="after")
-    def _seamless_needs_colour(self) -> ThemeSpec:
-        if self.background is BackgroundTreatment.SEAMLESS_COLOR and not self.background_color:
+    def _resolve_background_colour(self) -> ThemeSpec:
+        fixed = sweep_colour_for(self.background)
+        if fixed is not None:
+            # A named sweep *is* its colour, so the name overrides whatever came in.
+            # The alternative is honouring a hex left behind by an earlier
+            # `seamless_color` choice, which renders a backdrop that contradicts the
+            # label the user actually picked — and the label is the thing they chose.
+            self.background_color = fixed
+        elif self.background is BackgroundTreatment.SEAMLESS_COLOR and not self.background_color:
             # Fall back to the dominant brand colour rather than failing the job.
             self.background_color = self.palette[0] if self.palette else "#f2f2f2"
         return self
@@ -163,6 +186,15 @@ class AdJobRequest(BaseModel):
     product_name: str = Field(min_length=1, max_length=120)
     caption: str = Field(default="", max_length=300)
     cta_text: str = Field(default="", max_length=40, description="e.g. 'Shop now'")
+    website_url: str = Field(
+        default="",
+        max_length=200,
+        description=(
+            "Where the ad sends the viewer. Drawn on the closing brand slate, not "
+            "spoken to the generator — a diffusion model cannot spell a URL. Left "
+            "empty with no logo, no slate is produced and the ad runs full length."
+        ),
+    )
     additional_prompt: str = Field(default="", max_length=1000)
     negative_constraints: str = Field(
         default="",
@@ -228,6 +260,27 @@ class AdJobRequest(BaseModel):
     consent: ConsentAttestation
     tier: Tier = Tier.MOCK
 
+    @field_validator("website_url")
+    @classmethod
+    def _normalise_website(cls, v: str) -> str:
+        """Store a complete URL, whatever the person typed.
+
+        A person typing a website into a form writes ``acme.com``; the record should
+        hold ``https://acme.com``, because that is where the ad is sending the viewer
+        and a manifest read a year later should not have to guess the scheme.
+
+        What the slate *draws* is narrower — see ``website_display``. The two differ
+        on purpose: the stored value is a link, the drawn value is a brand name.
+
+        Deliberately not a URL validator. This string is drawn, never fetched, and
+        rejecting an intranet host or a punycode domain would fail a job over text
+        that renders perfectly well.
+        """
+        v = v.strip()
+        if v and "://" not in v:
+            v = f"https://{v}"
+        return v
+
     @model_validator(mode="after")
     def _cannot_animate_more_than_was_generated(self) -> AdJobRequest:
         """``video_count`` is clamped, not rejected.
@@ -260,6 +313,46 @@ class AdJobRequest(BaseModel):
         this True. See docs/prediction-protocol.md.
         """
         return self.video_count >= self.candidate_count
+
+    @property
+    def has_end_card(self) -> bool:
+        """Whether this job closes on a brand slate.
+
+        Driven by having something to put on it rather than by a flag, so a job
+        submitted before the feature existed — a frozen golden bundle, say — keeps
+        its original length instead of gaining 1.5 s of empty black.
+        """
+        return bool(self.website_url or self.logo_image)
+
+    @property
+    def website_display(self) -> str:
+        """The address as the slate draws it: host only, no scheme, no path.
+
+        ``https://www.acme.com/collections/aurora`` becomes ``acme.com``. A closing
+        slate is read in a second and a half off a phone held at arm's length, and
+        the scheme and path are the parts carrying no brand at all — nobody retypes
+        a path, and the host is the only piece a viewer could act on. Dropping them
+        also buys back the width that was making long addresses shrink to fit.
+
+        Paired with the search glyph beside it the two read as an address bar, which
+        states the instruction the slate is really giving: go and look this up.
+        """
+        host = self.website_url.split("://", 1)[-1]
+        host = host.split("/", 1)[0].split("?", 1)[0].split("#", 1)[0]
+        return host[4:] if host.lower().startswith("www.") else host
+
+    @property
+    def ad_seconds(self) -> float:
+        """How long the advertisement itself runs.
+
+        ``duration_seconds`` is what the viewer receives; the slate is carved out of
+        it. This is the number the video provider is asked for and the number the
+        delivered clip is trimmed to, so the frames that are scored and ranked are
+        exactly the frames that ship.
+        """
+        return (
+            self.duration_seconds - END_CARD_SECONDS if self.has_end_card else self.duration_seconds
+        )
 
     @property
     def aspect_ratio(self) -> AspectRatio:

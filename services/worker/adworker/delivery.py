@@ -27,22 +27,25 @@ import json
 import zipfile
 from dataclasses import dataclass
 
+import numpy as np
 from adml import audio as A
 from adml import crop as C
 from adml import video as V
 from adproviders import Storage
 from adschema import (
+    END_CARD_SECONDS,
     AdJobRequest,
     AspectRatio,
     AudioReport,
     DeliveryReport,
+    EndCardReport,
     JobResult,
     Platform,
     RankedCandidate,
     ReframeReport,
     VideoCandidate,
 )
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFont
 
 #: Long edge of a delivered render. 720 keeps a 9 s clip small enough to hand over
 #: while staying above the point where platform re-encoding becomes visible.
@@ -94,12 +97,21 @@ def reframe(
     request: AdJobRequest,
     storage: Storage,
     ratio: AspectRatio,
+    *,
+    end_card: bytes | None = None,
 ) -> RenderedVariant:
     """Produce one aspect-ratio variant of one clip, with its cost measured.
 
     The crop is planned against the *sampled* frames :mod:`adml.video` returns, which
     are the same frames the scorer measured — so the window is chosen against the
     clip that was ranked, not against a different decode of it.
+
+    ``end_card`` is appended after the reframe and before the store, so the crop is
+    still planned against advertisement frames only — a held still has no salience
+    to track, and letting it into the planner would drag the window towards the
+    middle of a black rectangle. Baking it in before the single ``put_bytes`` also
+    keeps the returned :class:`ReframeReport`'s ``sha256`` describing the bytes that
+    were actually written.
     """
     data = storage.get_bytes(video.asset.key)
     clip = V.decode(data)
@@ -144,6 +156,9 @@ def reframe(
             C.centre_plan(clip.probe.width, clip.probe.height, ratio.ratio),
             safe_area=safe,
         )
+
+    if end_card is not None:
+        out = V.append_still(out, end_card, END_CARD_SECONDS)
 
     asset = storage.put_bytes(key, out, "video/mp4")
     asset.width, asset.height = width, height
@@ -243,6 +258,202 @@ def preview_frame(
 
     out = io.BytesIO()
     Image.alpha_composite(frame, overlay).convert("RGB").save(out, format="PNG", optimize=True)
+    return out.getvalue()
+
+
+# --- Closing brand slate -----------------------------------------------------
+
+#: Share of the short edge the logo is allowed to occupy on the end card.
+#:
+#: Was 0.30, which read as a splash screen rather than a sign-off — the mark filled
+#: the frame and the address under it looked like a footnote. A slate is glanced at,
+#: not studied, and the two lines want to read as one block.
+_CARD_LOGO_SHARE = 0.25
+#: Share of the short edge used as the starting point for the address's type size,
+#: and the share of the width it must fit inside before the size is reduced.
+_CARD_TEXT_SHARE = 0.058
+_CARD_TEXT_MAX_WIDTH = 0.82
+#: The search glyph, as shares of the address's own ink height: the box it is drawn
+#: into, and the space between it and the first letter. Tied to the text rather than
+#: to the canvas so the pair stays a matched set at any render size.
+_CARD_ICON_SHARE = 0.92
+_CARD_ICON_GAP = 0.42
+#: Where the logo-and-URL block is centred vertically. Slightly above the middle,
+#: which is where the eye expects a title to sit and where the prototype put it.
+_CARD_BLOCK_CENTRE = 0.46
+
+
+def _fitted_font(text: str, start_px: int, max_width: int) -> ImageFont.FreeTypeFont:
+    """The largest default-family size at which ``text`` fits ``max_width``.
+
+    ``ImageFont.load_default(size=...)`` returns a scalable FreeType face on Pillow
+    10.1 and later, which is what makes this possible without shipping a font file
+    and taking on its licence — a real consideration for a project that already
+    refuses unlicensed audio.
+
+    Shrinking rather than truncating, because the string is a web address: an
+    ellipsis in the middle of a URL does not degrade, it misinforms.
+    """
+    size = max(8, start_px)
+    while size > 8:
+        font = ImageFont.load_default(size=size)
+        left, _, right, _ = font.getbbox(text)
+        if right - left <= max_width:
+            return font
+        size -= 2
+    return ImageFont.load_default(size=size)
+
+
+#: Mean luminance (0-255, measured inside the alpha mask) below which a logo is
+#: treated as a dark mark and redrawn light. 89 is 35% grey.
+_DARK_LOGO_LUMINANCE = 89.0
+
+
+def _legible_on_black(logo: Image.Image) -> Image.Image:
+    """Lighten a dark logo so it is visible on the slate.
+
+    Most brand marks are supplied black-on-transparent, because most of the places
+    they are used are white. Pasted unaltered onto a black slate such a mark
+    composites perfectly and shows nothing at all — the delivery report says
+    ``has_logo: true`` and the viewer sees an empty frame. That is exactly what a
+    live job produced: an Apple mark whose opaque pixels measured luminance 0.0.
+
+    Only genuinely dark marks are touched, and only their brightness — the alpha
+    channel carries the shape and is left alone, so the silhouette is still the real
+    one, and the scaling below preserves hue so a brand that chose a colour keeps it.
+
+    Luminance is the wrong test on its own and this nearly shipped with it: red is
+    weighted 0.2126, so a perfectly visible saturated red mark measures 78 and reads
+    as "dark". Scaling to the peak channel rather than painting white is what makes
+    the rule safe for those.
+    """
+    pixels = np.asarray(logo).astype(np.float32)
+    opaque = pixels[..., 3] > 8
+    if not opaque.any():
+        return logo
+    luminance = 0.2126 * pixels[..., 0] + 0.7152 * pixels[..., 1] + 0.0722 * pixels[..., 2]
+    if luminance[opaque].mean() >= _DARK_LOGO_LUMINANCE:
+        return logo
+
+    # Scale every channel by one factor until the brightest reaches full, rather than
+    # painting the mark white. That keeps the hue: a dark navy mark comes back bright
+    # navy, not white, and a brand that chose a colour keeps it. One factor for the
+    # whole mark rather than per pixel, so internal shading survives too.
+    #
+    # A mark that is *pure* black has no hue to preserve and no peak to scale from,
+    # so it becomes white — which is the common case and the one that failed.
+    peak = float(pixels[..., :3][opaque].max())
+    if peak <= 0.0:
+        pixels[..., :3] = 255.0
+    else:
+        pixels[..., :3] = np.clip(pixels[..., :3] * (255.0 / peak), 0.0, 255.0)
+    return Image.fromarray(pixels.astype(np.uint8), mode="RGBA")
+
+
+def _search_glyph(draw: ImageDraw.ImageDraw, x: int, y: int, size: int) -> None:
+    """A magnifying glass, drawn into a ``size``-square box with its top-left at (x, y).
+
+    Two vector primitives rather than the U+1F50D character, because the default
+    font is not guaranteed to carry it and a missing glyph does not raise — it draws
+    a tofu box, which would composite cleanly and ship. A circle and a line cannot
+    go missing.
+    """
+    if size < 6:
+        # Below this the stroke and the lens are the same pixel and the glyph reads
+        # as a smudge. A bare address is better than a blur beside it.
+        return
+    stroke = max(2, round(size * 0.11))
+    lens = round(size * 0.72)
+    draw.ellipse((x, y, x + lens, y + lens), outline=(255, 255, 255), width=stroke)
+
+    # The handle leaves the rim at 45 degrees, so it meets the circle tangentially
+    # and reads as attached rather than as a line crossing a ring.
+    centre = lens / 2.0
+    reach = centre * 0.7071
+    draw.line(
+        (round(x + centre + reach), round(y + centre + reach), x + size, y + size),
+        fill=(255, 255, 255),
+        width=stroke,
+    )
+
+
+def end_card_png(request: AdJobRequest, storage: Storage, width: int, height: int) -> bytes:
+    """The closing slate: the advertiser's logo over their web address, on black.
+
+    Drawn here rather than asked of the generator, and that is the whole point of
+    the feature. A video model cannot spell a URL — it renders plausible-looking
+    text — and it redraws a logo rather than reproducing it. Both failures are
+    invisible to every automated check in this pipeline and obvious to a viewer.
+    Compositing the slate makes it exact, free, and reproducible from the request.
+    """
+    canvas = Image.new("RGB", (width, height), (0, 0, 0))
+    short = min(width, height)
+
+    logo = None
+    if request.logo_image is not None:
+        try:
+            logo = Image.open(io.BytesIO(storage.get_bytes(request.logo_image.key)))
+            logo = _legible_on_black(logo.convert("RGBA"))
+            box = round(short * _CARD_LOGO_SHARE)
+            logo.thumbnail((box, box), Image.LANCZOS)
+        except (OSError, FileNotFoundError, ValueError):
+            # A slate with the URL alone is still a usable slate. Losing the whole
+            # delivery because a logo file is unreadable would be the worse trade.
+            logo = None
+
+    # The host alone, not the stored URL. See ``AdJobRequest.website_display``.
+    site = request.website_display
+    font = None
+    text_left = text_top = text_width = text_height = 0
+    if site:
+        start_px = round(short * _CARD_TEXT_SHARE)
+        # The glyph and its gap share the line with the text, so the text is fitted
+        # to what is left of the width rather than to all of it. Reserved from the
+        # *starting* size, which is the largest the glyph can turn out to be.
+        reserved = round(start_px * (_CARD_ICON_SHARE + _CARD_ICON_GAP))
+        font = _fitted_font(site, start_px, round(width * _CARD_TEXT_MAX_WIDTH) - reserved)
+        text_left, text_top, text_right, text_bottom = font.getbbox(site)
+        text_width = text_right - text_left
+        text_height = text_bottom - text_top
+
+    icon = round(text_height * _CARD_ICON_SHARE) if font is not None else 0
+    icon_gap = round(text_height * _CARD_ICON_GAP) if font is not None else 0
+    line_width = icon + icon_gap + text_width
+    line_height = max(icon, text_height)
+
+    gap = round(short * 0.06) if (logo is not None and font is not None) else 0
+    block = (logo.height if logo is not None else 0) + gap + line_height
+    y = round(height * _CARD_BLOCK_CENTRE) - block // 2
+
+    if logo is not None:
+        canvas.paste(logo, ((width - logo.width) // 2, y), logo)
+        y += logo.height + gap
+
+    if font is not None:
+        draw = ImageDraw.Draw(canvas)
+        x = (width - line_width) // 2
+        _search_glyph(draw, x, y + (line_height - icon) // 2, icon)
+        # ``anchor="la"`` puts the pen at the ascender and at the origin, and the ink
+        # is at neither: the ascender clears the tallest letter, and the first glyph
+        # carries a left side bearing. The layout above measured ink, so subtracting
+        # both offsets is what makes the two agree. Without the vertical half of it
+        # the block is laid out against one origin and drawn against another —
+        # measured on a delivered 1080x1920 slate the address landed at 57% of the
+        # height instead of 46%. Without the horizontal half the glyph sits too far
+        # from a letter that starts with a bearing, and too close to one that does not.
+        draw.text(
+            (
+                x + icon + icon_gap - text_left,
+                y + (line_height - text_height) // 2 - text_top,
+            ),
+            site,
+            fill=(255, 255, 255),
+            font=font,
+            anchor="la",
+        )
+
+    out = io.BytesIO()
+    canvas.save(out, format="PNG", optimize=True)
     return out.getvalue()
 
 
@@ -424,13 +635,41 @@ def deliver(
         report.warnings.append("no ranked candidate, so nothing was delivered")
         return report
 
+    if request.has_end_card:
+        report.end_card = EndCardReport(
+            seconds=END_CARD_SECONDS,
+            website=request.website_url,
+            has_logo=request.logo_image is not None,
+        )
+
     video = winner.video
     for ratio in ratios:
+        # Drawn per ratio rather than once, because the slate has to be the variant's
+        # own geometry — a 9:16 card letterboxed into a 16:9 render would put black
+        # bars around a frame that is already black, and centre the logo in the wrong
+        # rectangle.
+        #
+        # Caught separately from the reframe, and that separation is the point: an
+        # advertisement that has been generated, ranked and paid for should ship
+        # unbranded rather than not at all, so a slate that cannot be drawn costs the
+        # slate and nothing else.
+        card = None
+        if request.has_end_card:
+            try:
+                card = end_card_png(request, storage, *_delivery_size(ratio))
+            except (OSError, ValueError) as exc:
+                report.warnings.append(
+                    f"the {ratio.value} end card could not be drawn, so that render "
+                    f"ships without one: {exc}"
+                )
+
         try:
-            variant = reframe(video, request, storage, ratio)
+            variant = reframe(video, request, storage, ratio, end_card=card)
         except V.ClipDecodeError as exc:
             report.warnings.append(f"{ratio.value} render failed: {exc}")
             continue
+        if card is not None:
+            report.end_card.attached = True
         report.renders.append(variant.report)
         video.platform_renders[ratio.value] = variant.report.asset
         if variant.report.retained_salience < WARN_RETAINED_SALIENCE:
@@ -456,8 +695,9 @@ def deliver(
     # winner that does not reads as a broken clip rather than as a deliberate
     # economy.
     for candidate in result.videos:
+        source = _carded_native(candidate, request, storage, report)
         attached = _attach_audio(
-            candidate, request, storage, bed, report, primary=candidate is video
+            candidate, request, storage, bed, report, primary=candidate is video, source=source
         )
         if candidate is video:
             report.audio = attached
@@ -471,6 +711,38 @@ def deliver(
     return report
 
 
+def _carded_native(
+    video: VideoCandidate,
+    request: AdJobRequest,
+    storage: Storage,
+    report: DeliveryReport,
+) -> bytes | None:
+    """The native-geometry clip with the closing slate on it, or ``None``.
+
+    Stored under its own key rather than written back over ``video.asset``. The
+    generated asset is the record of what the provider produced and what was billed
+    for, and its ``duration_seconds`` describes the advertisement; overwriting it
+    with a longer file would leave the record contradicting the bytes.
+    """
+    if not request.has_end_card:
+        return None
+    try:
+        raw = storage.get_bytes(video.asset.key)
+        info = V.probe(raw)
+        card = end_card_png(request, storage, info.width, info.height)
+        carded = V.append_still(raw, card, END_CARD_SECONDS)
+    except (V.ClipDecodeError, FileNotFoundError, OSError, ValueError) as exc:
+        report.warnings.append(
+            f"the end card could not be added to clip {video.index}, so it ships without one: {exc}"
+        )
+        return None
+
+    key = f"delivery/{request.job_id}/{video.index}_end_card.mp4"
+    video.platform_renders["end_card"] = storage.put_bytes(key, carded, "video/mp4")
+    report.end_card.attached = True
+    return carded
+
+
 def _attach_audio(
     video: VideoCandidate,
     request: AdJobRequest,
@@ -479,6 +751,7 @@ def _attach_audio(
     report: DeliveryReport,
     *,
     primary: bool = True,
+    source: bytes | None = None,
 ) -> AudioReport:
     """Mix audio onto the native render.
 
@@ -512,7 +785,13 @@ def _attach_audio(
         )
 
     try:
-        mixed, mix_report = A.mix(storage.get_bytes(video.asset.key), bed)
+        # The carded clip when there is one, so the bed runs under the slate and
+        # fades at the true end. `A.mix` trims the bed to the video's own duration,
+        # so this needs no extra audio handling — mixing first and appending after
+        # would have ended the music 1.5 s early.
+        mixed, mix_report = A.mix(
+            source if source is not None else storage.get_bytes(video.asset.key), bed
+        )
         measured = A.measure_loudness(mixed)
     except A.AudioError as exc:
         report.warnings.append(

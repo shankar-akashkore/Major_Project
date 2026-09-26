@@ -1,17 +1,41 @@
 import type { Metadata } from "next";
 
 import { Shell } from "@/components/Shell.tsx";
+import { DEFAULT_CANDIDATE_COUNT, DEFAULT_VIDEO_COUNT } from "@/lib/contract.ts";
 import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Ad candidate generation",
   description:
-    "Generate three ad candidates, rank them as images, animate each, and rank them again.",
+    `Generate ${DEFAULT_CANDIDATE_COUNT} ad candidates, rank them as images, animate the ` +
+    `${DEFAULT_VIDEO_COUNT} that earn it, and rank them again.`,
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
+      {/*
+        The fonts are linked at runtime rather than pulled in through `next/font`,
+        which fetches at build time: a build that needs the network to succeed is a
+        build that fails on a train, and this project has to survive being
+        demonstrated offline. If Google Fonts is unreachable the stacks fall through
+        to Menlo and Georgia — the app looks slightly different, never broken.
+
+        Same reasoning, and the same two families, as the landing page used to load
+        for itself. It loads here instead, once, for every route.
+
+        `precedence` is not decoration: without it React refuses to hoist a
+        stylesheet into <head>, leaves the tag where it was written — as a child of
+        <html>, which is invalid HTML — and the page hydrates with an error. With it,
+        React hoists and de-duplicates by href.
+      */}
+      <link rel="preconnect" href="https://fonts.googleapis.com" />
+      <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
+      <link
+        rel="stylesheet"
+        precedence="default"
+        href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Playfair+Display:ital,wght@0,400;0,500;0,700;1,400&display=swap"
+      />
       {/*
         `suppressHydrationWarning` is here for browser extensions, not for our own
         mismatches. ColorZilla stamps `cz-shortcut-listen="true"` onto <body> before

@@ -32,6 +32,9 @@ fixtures/uploads/*
 fixtures/generations/*
 # Intake derivatives (product cutouts) — regenerated from the upload every run.
 fixtures/intake/*
+# scripts/export_references.py output — reproducible from the job database and
+# storage, and it is a copy of user-uploaded reference photos.
+fixtures/references/*
 # The annotation corpus: bulk-generated images and their catch-trial decoys.
 # Hundreds of megabytes eventually, and reproducible from the ledger and the seeds.
 fixtures/corpus/*
@@ -49,6 +52,12 @@ fixtures/research/*
 # `scripts/freeze_golden.py --slug <name> --pack`.
 fixtures/golden/*/assets/*
 fixtures/golden/*.zip
+# The landing page's showcase media, built from a job that already ran by
+# `scripts/build_showcase.py`. Gitignored for the same reason as the generations it
+# is cut from, plus a sharper one: these frames carry a real person's likeness and a
+# real brand's product, and committing them would publish both. A checkout without
+# this directory renders the landing page's abstract treatment instead.
+apps/web/public/showcase/
 # Live smoke test output: one paid Seedream image and one paid Kling clip, ~7.5 MB
 # between them. The raw JSON responses ARE committed — a few hundred bytes each,
 # and they are the only record of what the API actually returned. That record is

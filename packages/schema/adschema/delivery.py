@@ -83,6 +83,31 @@ class AudioReport(BaseModel):
     note: str = ""
 
 
+class EndCardReport(BaseModel):
+    """The closing brand slate, and whether it actually made it onto the file.
+
+    Worth recording rather than assuming, because the slate is the one part of the
+    deliverable carrying a claim about the advertiser — their mark and their
+    address. A clip that shipped without it looks finished and is not, and the
+    person publishing it should be told by the manifest rather than by a viewer.
+    """
+
+    attached: bool = False
+    seconds: float = Field(
+        default=0.0,
+        description="How long the slate holds. Carved out of the requested duration, "
+        "not added to it, so the delivered file still lands in the 8-10 s window.",
+    )
+    website: str = Field(
+        default="",
+        description="Where the slate points, stored whole. The slate itself draws only "
+        "the host beside a search glyph — 'acme.com' — because that is the part a "
+        "viewer could retype; the manifest keeps the rest.",
+    )
+    has_logo: bool = False
+    note: str = ""
+
+
 class DeliveryReport(BaseModel):
     """Stage 8's output for one job."""
 
@@ -94,6 +119,7 @@ class DeliveryReport(BaseModel):
         "bar is visible before publishing rather than after.",
     )
     audio: AudioReport = Field(default_factory=AudioReport)
+    end_card: EndCardReport = Field(default_factory=EndCardReport)
     bundle: AssetRef | None = Field(
         default=None, description="Zip of every render, preview and report card."
     )
@@ -115,6 +141,8 @@ class DeliveryReport(BaseModel):
             )
         if self.audio.attached:
             parts.append("audio attached")
+        if self.end_card.attached:
+            parts.append(f"{self.end_card.seconds:.1f}s end card")
         if self.warnings:
             parts.append(f"{len(self.warnings)} warning(s)")
         return ", ".join(parts)

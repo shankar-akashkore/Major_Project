@@ -136,6 +136,11 @@ class Settings(BaseSettings):
 
         Making the mode loudly visible is deliberate: the failure we most want
         to avoid is spending real money while believing we are in mock mode.
+
+        This is the operator's copy and it stays verbose. It prints to the terminal
+        that started the process, which belongs to whoever is paying — and "the video
+        provider quietly fell back to a mock" is precisely what that person needs to
+        read. `describe_public` is what goes on a screen someone else is watching.
         """
         if self.is_live:
             return (
@@ -149,6 +154,21 @@ class Settings(BaseSettings):
                 f"{self.golden_set or '(none configured)'}. No calls, no spend."
             )
         return "✅ MOCK MODE — no external calls, no spend."
+
+    def describe_public(self) -> str:
+        """The banner as an audience sees it, via the config endpoint.
+
+        Identical to `describe` except in live mode, where it drops the two details
+        that are the operator's business and not the room's: which model identifiers
+        are wired up, and how large the account behind them is. The warning itself
+        stays, and so does the per-job cap — those exist to be seen.
+
+        Mock and replay need no separate copy: neither names a provider or an amount,
+        so both delegate rather than keeping a second string that could drift.
+        """
+        if self.is_live:
+            return f"⚠️  LIVE MODE — real spend enabled. Cap ${self.budget_per_job_usd:.2f} per job."
+        return self.describe()
 
     @property
     def has_fal_key(self) -> bool:

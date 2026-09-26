@@ -1,39 +1,235 @@
 @import "tailwindcss";
 
-/**
- * One colour carries meaning rather than style: `warn`.
+/*
+ * Black and white only, across the whole app.
  *
- * It marks anything that is not what it appears to be — a placeholder score, a
- * quality check whose model has not landed, a mock generation, a reframe that lost
- * content. The report's SVG figures use an amber for exactly the same job, so a
- * screenshot of this UI and a figure in the write-up agree about what a caveat
- * looks like.
+ * The landing page proved this palette out first and kept it scoped under `.home`
+ * so it could not reach the console. That scoping is deliberately lifted now: the
+ * tokens live here, the landing consumes them, and there is one source for what a
+ * rule or a muted grey is worth.
+ *
+ * Nothing below carries a hue. Every value is #000, #fff, a true grey, or white at
+ * an opacity — which keeps the app monochrome by construction rather than by
+ * discipline, and makes "did any colour survive?" a question a test can answer.
  */
 @theme {
+  /*
+   * Tailwind's `zinc` is very slightly blue (zinc-800 is #27272a — r and g agree,
+   * b does not). Remapped to true greys so the ~150 existing `zinc-*` utilities
+   * across the components go monochrome without being rewritten one by one.
+   *
+   * Two shades are lifted rather than copied from Tailwind's neutral ramp:
+   * `zinc-500` (#737373) and `zinc-600` (#525252) carry 10–11px muted text on
+   * black in about fifty places, and measured against #000 those are 4.48:1 and
+   * 2.69:1 — the second fails AA outright and the first only just clears it.
+   * #8a8a8a is 6.08:1 and #767676 is 4.62:1.
+   */
+  --color-zinc-50: #fafafa;
+  --color-zinc-100: #f5f5f5;
+  --color-zinc-200: #e5e5e5;
+  --color-zinc-300: #d4d4d4;
+  --color-zinc-400: #a3a3a3;
+  --color-zinc-500: #8a8a8a;
+  --color-zinc-600: #767676;
+  --color-zinc-700: #404040;
+  --color-zinc-800: #262626;
+  --color-zinc-900: #0d0d0d;
+  --color-zinc-950: #000000;
+
+  /*
+   * Three colours, and only for verdicts.
+   *
+   * The page is otherwise black and white, which is what makes these carry: a tag
+   * gets a hue only where reading it wrongly costs something — a placeholder taken
+   * for a measurement, a failed gate taken for a pass, a live run taken for a mock.
+   * Everything else — buttons, rules, headings, nav, the landing page — stays ink on
+   * paper, so the coloured things are the only coloured things.
+   *
+   * **Colour is the second carrier, never the first.** `Badge` already separates
+   * these by border style and glyph — dashed and ▲, solid and ✓, heavy and ✕ — and
+   * that is what makes green-beside-red usable here at all. It is the one pairing a
+   * red-green colourblind reader loses, and it is safe only because losing it costs
+   * nothing: the shape still says which is which. Delete the glyphs and this palette
+   * becomes an accessibility bug. See `docs/ui-protocol.md`.
+   *
+   * Measured on #000: amber 12.58:1, green 12.05:1, red 7.59:1 — all clear AAA, and
+   * each `-400` clears AA against its own `-950` panel (9.94, 8.55, 6.55).
+   */
   --color-warn-50: #fffbeb;
   --color-warn-400: #fbbf24;
   --color-warn-500: #f59e0b;
-  --color-warn-950: #2a1c05;
+  --color-warn-950: #2a1c02;
 
-  --color-good-400: #34d399;
-  --color-good-500: #10b981;
-  --color-good-950: #04231a;
+  --color-good-400: #4ade80;
+  --color-good-500: #22c55e;
+  --color-good-950: #052e16;
 
   --color-bad-400: #f87171;
   --color-bad-500: #ef4444;
-  --color-bad-950: #2a0a0a;
+  --color-bad-950: #2c0b0b;
+
+  /*
+   * `sky` stays collapsed to ink, alone among the four.
+   *
+   * It means "running" — a state that resolves itself in seconds, not a judgement
+   * about anything. A fourth hue competing with the three above would cost each of
+   * them some of its loudness to mark something that is about to stop being true.
+   */
+  --color-sky-300: #ffffff;
+  --color-sky-400: #ffffff;
+  --color-sky-500: #ffffff;
+  --color-sky-950: #0d0d0d;
+
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+  --font-serif: "Playfair Display", "Iowan Old Style", Georgia, "Times New Roman", serif;
 }
 
 :root {
   color-scheme: dark;
+
+  --ink: #ffffff;
+  --paper: #000000;
+  --l-1: rgba(255, 255, 255, 0.92);
+  --l-2: rgba(255, 255, 255, 0.72);
+  /*
+   * 0.56, not the 0.42 this started at. Composited on black that was a 3.94:1
+   * contrast ratio, under the 4.5:1 AA floor, and it was carrying 12px text — the
+   * stat footnotes, the figure caption, the footer. Measured in the page rather
+   * than judged by eye, because on a black background a grey that is too dark
+   * still looks deliberate. 0.56 measures 6.49:1.
+   */
+  --l-3: rgba(255, 255, 255, 0.56);
+  /* Decorative only — separators, empty chips, dashed drop zones. Never text. */
+  --l-4: rgba(255, 255, 255, 0.28);
+  --rule: rgba(255, 255, 255, 0.14);
+  --rule-soft: rgba(255, 255, 255, 0.07);
+
+  --serif: "Playfair Display", "Iowan Old Style", Georgia, "Times New Roman", serif;
+  --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
 }
 
 body {
-  @apply bg-zinc-950 text-zinc-100 antialiased;
+  background: var(--paper);
+  color: var(--l-1);
+  font-family: var(--mono);
+  -webkit-font-smoothing: antialiased;
   font-feature-settings: "tnum" 1;
+}
+
+::selection {
+  background: #fff;
+  color: #000;
+}
+
+:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+  border-radius: 2px;
 }
 
 /* Numbers in tables must line up to be comparable at a glance. */
 .tabular {
   font-variant-numeric: tabular-nums;
+}
+
+.serif {
+  font-family: var(--serif);
+  font-weight: 400;
+  letter-spacing: -0.02em;
+}
+
+/* ------------------------------------------------------------------- motion */
+
+/*
+ * Scroll-linked motion, on the same terms the landing page set.
+ *
+ * `animation-timeline` runs on the compositor rather than in a scroll handler, so
+ * it cannot jank the main thread, and it costs nothing in `node_modules`.
+ *
+ * **This one moves and does not fade, and that is the whole point.** The landing
+ * page's reveals animate opacity from 0, which is right for a marketing page. Here
+ * the same rule would put an `opacity: 0` on entire form cards — Copy, Targeting
+ * and look — until a scroll timeline advanced past them.
+ *
+ * `@supports` guards the browsers that lack the feature. It does not guard the
+ * browsers that *have* it and still never advance the timeline, and that case is
+ * real: measured in a background tab, `document.hidden === true`, the progress bar
+ * sat at `scaleX(0)` at both ends of a 1367px scroll while `scrollY` moved
+ * correctly. A hidden document does not composite, so the timeline stays pinned at
+ * progress zero — which with `fill: both` is the `from` state. Print, some
+ * screenshot pipelines and prerenderers land in the same place.
+ *
+ * On a landing page that bet costs a nice effect. On the page where someone types
+ * a product name and commits real money, it costs the form. So the only property
+ * animated is `transform`: the worst failure available is a card sitting 10px low,
+ * which is invisible as a defect and harmless as a bug.
+ */
+.rise {
+  opacity: 1;
+}
+
+.scroll-progress {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  height: 2px;
+  background: var(--rule-soft);
+}
+
+.scroll-progress > i {
+  display: block;
+  height: 2px;
+  background: var(--ink);
+  transform-origin: 0 50%;
+  /* Unenhanced, this reads as a plain hairline accent rather than a lying meter. */
+  transform: scaleX(1);
+}
+
+@supports (animation-timeline: scroll()) {
+  .scroll-progress > i {
+    animation: sp-grow linear both;
+    animation-timeline: scroll(root block);
+  }
+
+  /*
+   * Whole sections only. Staggering individual fields would mean a form whose
+   * inputs arrive one at a time as you scroll, which is motion getting in the way
+   * of the task the page exists for.
+   */
+  .rise {
+    animation: sp-rise linear both;
+    animation-timeline: view();
+    animation-range: entry 2% cover 20%;
+  }
+}
+
+@keyframes sp-grow {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+@keyframes sp-rise {
+  from {
+    transform: translateY(10px);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rise {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+
+  .scroll-progress > i {
+    animation: none;
+    transform: scaleX(1);
+  }
 }

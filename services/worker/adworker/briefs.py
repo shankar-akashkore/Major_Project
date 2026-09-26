@@ -77,6 +77,18 @@ _COMPOSITION_PHRASE: dict[Composition, str] = {
 
 _BACKGROUND_PHRASE: dict[BackgroundTreatment, str] = {
     BackgroundTreatment.STUDIO_WHITE: "clean seamless white studio backdrop",
+    # Each named sweep carries a colour *word* and the hex, and no comma between
+    # them.  The word is what a diffusion model acts on and the hex is what pins it
+    # down, but `_build_image_prompt_compact` keeps only the clause before the first
+    # comma — so a phrase that qualified itself would reach the generator with the
+    # colour removed, which is the one thing these five exist to state.
+    BackgroundTreatment.STUDIO_PURPLE: "seamless dusty plum-purple studio sweep in {colour}",
+    BackgroundTreatment.STUDIO_BLUE: "seamless pale powder-blue studio sweep in {colour}",
+    BackgroundTreatment.STUDIO_CARBON_BLACK: (
+        "seamless deep charcoal-black studio sweep in {colour}"
+    ),
+    BackgroundTreatment.STUDIO_GREEN: "seamless soft sage-green studio sweep in {colour}",
+    BackgroundTreatment.STUDIO_CORAL: "seamless warm blush-coral studio sweep in {colour}",
     BackgroundTreatment.SEAMLESS_COLOR: "seamless solid colour backdrop in {colour}",
     BackgroundTreatment.SOFT_GRADIENT: "smooth soft colour gradient backdrop",
     BackgroundTreatment.LIFESTYLE_SCENE: "tasteful lifestyle interior setting, softly out of focus",
@@ -233,6 +245,16 @@ _MOTION_BEATS: dict[MotionIntent, _Beat] = {
 _BASE_NEGATIVES = (
     "distorted face, extra fingers, malformed hands, warped product label, "
     "duplicated product, unreadable text, watermark, logo artefacts, "
+    # Placement, not the object. A bare "brand logo" here would contradict the
+    # positive prompt two blocks up, which demands the product's "exact shape,
+    # colour, proportions, label text and finish" — and for a pair of Apple
+    # headphones the mark on the earcup *is* the product's identity. Given two
+    # instructions pulling opposite ways the generator is free to resolve it by
+    # de-branding the product, and `product_identity` is still a pending check, so
+    # nothing downstream would notice. These name a mark that has been *added to the
+    # scene*, which is the thing that was actually wrong.
+    "superimposed logo, floating logo, logo in the corner of the frame, "
+    "brand mark added to the background, text overlay, caption text, "
     "blurry product, cropped product, "
     # Scale failures. Named separately because they are not artefacts — every one
     # of these frames is well-formed, and the first live job passed every gate
@@ -339,11 +361,14 @@ def _build_image_prompt_compact(request: AdJobRequest, dp: DesignPoint, scene: s
 
 def _reference_roles(request: AdJobRequest) -> list[str]:
     """Ordered reference descriptions.  Order is load-bearing — the prompt refers
-    to these positionally, so it must match the order references are uploaded in."""
-    roles = ["the human model", "the product"]
-    if request.logo_image is not None:
-        roles.append("the brand logo")
-    return roles
+    to these positionally, so it must match the order references are uploaded in.
+
+    The logo is deliberately absent. It is a *delivery* asset, composited onto the
+    closing brand slate where it can be reproduced exactly, and handing it to a
+    generator instead produced ads with a large Apple mark floating in the corner of
+    the photograph. See :func:`_build_image_prompt`.
+    """
+    return ["the human model", "the product"]
 
 
 def _build_image_prompt(request: AdJobRequest, dp: DesignPoint, scene: str) -> str:
@@ -368,11 +393,14 @@ def _build_image_prompt(request: AdJobRequest, dp: DesignPoint, scene: str) -> s
         "Image 2 is the product. Preserve its exact shape, colour, proportions, label "
         "text and finish. The product must be immediately recognisable as the same item.",
     ]
-    if request.logo_image is not None:
-        lines.append(
-            "Image 3 is the brand logo. Reproduce it cleanly and unaltered; do not "
-            "distort, recolour or regenerate the letterforms."
-        )
+    # No logo reference, and no instruction to draw one.
+    #
+    # There used to be both, and the generator did exactly as it was told: the first
+    # live job came back with a large Apple mark stamped into the corner of every
+    # frame. That is not what a logo is for in an advertisement, and a diffusion
+    # model redraws letterforms rather than reproducing them — the one thing a mark
+    # cannot survive. The logo is composited onto the closing slate instead, where it
+    # is pixel-exact and lasts the 1.5 s it is meant to.
 
     # Placed directly after the references and before the shot, because it is a
     # property *of* the references and because early tokens carry more weight. The

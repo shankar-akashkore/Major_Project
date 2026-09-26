@@ -58,11 +58,17 @@ export function VideoStage({ ranking }: { ranking: RankedCandidate[] }) {
           const move = movement(candidate);
           const video = candidate.video;
           const slot = slotLetter(video.source_image_index);
-          // The mixed render, falling back to the native one. `video.asset` is the
-          // clip as the provider returned it, which has no audio track at all —
-          // playing it directly is why the delivered ads were silent in the browser
-          // even after the mix was working and written to storage.
-          const url = mediaUrl(video.platform_renders?.audio ?? video.asset);
+          // The mixed render, then the one carrying the end card, then the native
+          // clip. `video.asset` is the clip as the provider returned it, which has
+          // no audio track at all — playing it directly is why the delivered ads
+          // were silent in the browser even after the mix was working and written
+          // to storage. `end_card` is the middle rung for the same class of reason:
+          // when a job ships without music there is still a branded render, and
+          // falling straight through to the native clip would drop the logo and
+          // address from the only version anyone watches.
+          const url = mediaUrl(
+            video.platform_renders?.audio ?? video.platform_renders?.end_card ?? video.asset,
+          );
           const poster = mediaUrl(video.thumbnail) ?? undefined;
           return (
             <Card key={candidate.rank} as="li" className="overflow-hidden">

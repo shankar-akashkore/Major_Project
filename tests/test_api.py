@@ -33,6 +33,7 @@ from adapi.annotation_store import AnnotationStore
 from adapi.main import Services, create_app
 from adapi.store import EventBus, JobStore
 from adschema import (
+    END_CARD_SECONDS,
     MAX_DURATION_S,
     MIN_DURATION_S,
     AppConfig,
@@ -542,6 +543,59 @@ async def test_concurrent_jobs_all_reach_a_terminal_state(client, services):
     for row in page.jobs:
         record = await services.store.get(row.job_id)
         assert record is not None and record.error is None
+
+
+# --- The end card ------------------------------------------------------------
+
+
+async def test_the_website_field_reaches_the_request(client, uploads):
+    """The one link in the end-card chain nothing else covers.
+
+    Everything downstream of ``AdJobRequest.website_url`` is tested against a
+    request built in Python, so a form field that was never read — a typo in the
+    ``Form`` name, a value not passed to the constructor — would leave all of it
+    green and still deliver an unbranded clip. The failure is silent by
+    construction: an empty website is a *valid* job that simply has no slate.
+
+    Read back off the stored record rather than off the response, because the
+    response carries only an id and a state; the question is what was persisted.
+    """
+    launched = (
+        (
+            await client.post(
+                "/api/jobs",
+                data=_form(website_url="acme.com"),
+                files=_files(uploads),
+            )
+        )
+        .raise_for_status()
+        .json()
+    )
+
+    record = JobRecord.model_validate((await client.get(f"/api/jobs/{launched['job_id']}")).json())
+    assert record.request.website_url == "https://acme.com"
+    assert record.request.website_display == "acme.com"
+    assert record.request.has_end_card
+    assert record.request.ad_seconds == record.request.duration_seconds - END_CARD_SECONDS
+
+
+async def test_a_job_posted_without_a_website_gets_no_slate(client, uploads):
+    """The other half, and the one that keeps the default honest.
+
+    The wizard leaves this field empty far more often than it fills it, and an
+    empty string reaching the schema as a slate — 1.5 s of black with nothing on
+    it — would be worse than the feature not existing.
+    """
+    launched = (
+        (await client.post("/api/jobs", data=_form(), files=_files(uploads)))
+        .raise_for_status()
+        .json()
+    )
+
+    record = JobRecord.model_validate((await client.get(f"/api/jobs/{launched['job_id']}")).json())
+    assert record.request.website_url == ""
+    assert not record.request.has_end_card
+    assert record.request.ad_seconds == record.request.duration_seconds
 
 
 # --- Wiring ----------------------------------------------------------------

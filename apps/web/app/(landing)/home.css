@@ -1,0 +1,946 @@
+/*
+ * The landing page's own stylesheet. Deliberately not part of `globals.css`.
+ *
+ * The layout rules here are still scoped under `.home`, because a display headline
+ * at 9.5rem and a pinned five-act runway have no business anywhere near a form. What
+ * is no longer scoped is the *palette*: the console pages are monochrome now too, so
+ * the ink, paper and grey tokens moved to `:root` in `globals.css` and this file
+ * inherits them like everything else.
+ *
+ * Two constraints shaped the motion. There is no animation library: with 7.9 GiB of
+ * disk left, adding GSAP and its plugins to `node_modules` is a real cost for effects
+ * that CSS can carry. And scroll-linked motion here uses `animation-timeline`, which
+ * runs on the compositor rather than in a scroll handler, so it cannot jank the main
+ * thread. Browsers without it (Firefox today) simply get the finished state: every
+ * such rule is written so that "no animation" means "already arrived", never "stuck
+ * invisible". A landing page that renders blank in an unsupported browser is a much
+ * worse bug than one that renders still.
+ */
+
+.home {
+  /*
+   * The ink, paper and grey tokens used to be declared here, so that importing this
+   * file could not reach the working app. They now live in `globals.css` under
+   * `:root` and are simply inherited: the console pages went monochrome too, and two
+   * copies of the same scale is how the landing and the app drift apart by a
+   * percentage point of opacity nobody notices until a screenshot sits next to one.
+   *
+   * Only what is genuinely this page's own is left below.
+   */
+  --gap: clamp(4.5rem, 11vw, 9.5rem);
+
+  background: var(--paper);
+  color: var(--l-1);
+  font-family: var(--mono);
+  -webkit-font-smoothing: antialiased;
+  overflow-x: clip;
+}
+
+/* The page owns the whole viewport, so the body's app colours must not show through. */
+body:has(.home) {
+  background: #000;
+}
+
+.home ::selection {
+  background: #fff;
+  color: #000;
+}
+
+.home :focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 3px;
+  border-radius: 2px;
+}
+
+/* ---------------------------------------------------------------- typography */
+
+.home h1,
+.home h2,
+.home h3,
+.home .display {
+  font-family: var(--serif);
+  font-weight: 400;
+  letter-spacing: -0.025em;
+  line-height: 0.92;
+  text-wrap: balance;
+}
+
+.home .eyebrow {
+  font-family: var(--mono);
+  font-size: 0.6875rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--l-3);
+}
+
+.home .lede {
+  font-size: clamp(1rem, 1.15vw, 1.1875rem);
+  line-height: 1.6;
+  color: var(--l-2);
+  max-width: 46ch;
+  text-wrap: pretty;
+}
+
+/*
+ * The display size, bounded by the viewport's height as well as its width.
+ *
+ * Width alone is the usual way to size a headline this large and it is wrong on a
+ * laptop: at 1440x900 an 11vw headline is 158px, three lines of it plus the ledger
+ * is 1137px, and the button that opens the console lands 85px below the fold. A
+ * masthead that pushes its own call to action off the screen has been sized for a
+ * screenshot rather than for a reader. `min()` lets whichever axis is scarcer win.
+ */
+.home .shout {
+  font-size: clamp(2.9rem, min(10.5vw, 11.5vh), 9.5rem);
+}
+
+/*
+ * One scale for every section heading, instead of the same `clamp()` written out
+ * eight times in the markup. It tops out below `.shout` on purpose: the display size
+ * is spent twice on this page — the masthead and the closing line — and a heading
+ * that competes with those is a heading that flattens the whole page into one note.
+ */
+.home .title {
+  font-size: clamp(1.9rem, 4.2vw, 3.25rem);
+  max-width: 18ch;
+}
+
+/*
+ * Sized against its own column, not against the viewport.
+ *
+ * The four figures are not the same length — "5" is one glyph and "8-10s" is five —
+ * and a viewport-scaled numeral does not know that. At 1024px the wide one ran 20px
+ * past its column and into the next: two numbers touching, in a band whose entire job
+ * is to let you compare four numbers. `cqi` measures the box that actually has to
+ * hold it. The `vw` line above it is the fallback for browsers without container
+ * queries, which drop the `cqi` declaration and keep this one.
+ */
+.home-stat {
+  container-type: inline-size;
+}
+
+.home .num {
+  font-family: var(--serif);
+  font-size: clamp(2.75rem, 6.8vw, 5.5rem);
+  font-size: clamp(2.75rem, 37cqi, 5.5rem);
+  line-height: 0.85;
+  font-variant-numeric: tabular-nums;
+}
+
+.home .wrap {
+  width: min(100% - 2.5rem, 78rem);
+  margin-inline: auto;
+}
+
+/* ------------------------------------------------------------ scroll progress */
+
+.home-progress {
+  position: fixed;
+  inset: 0 0 auto 0;
+  height: 2px;
+  background: #fff;
+  transform-origin: 0 50%;
+  transform: scaleX(0);
+  z-index: 60;
+}
+
+@supports (animation-timeline: scroll()) {
+  .home-progress {
+    animation: home-progress-grow linear both;
+    animation-timeline: scroll(root block);
+  }
+}
+
+@keyframes home-progress-grow {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+/* --------------------------------------------------------------- hero motion */
+
+/*
+ * The opening lines rise into place behind a mask. `.home-line` is the clip; the
+ * span inside is what moves, so the text appears to be pulled up out of the rule
+ * beneath it rather than sliding over the page.
+ */
+/*
+ * The padding is not spacing — it is headroom for the mask. `overflow: hidden` cuts
+ * at the box edge, and Playfair's italic descenders (the tail of a p, the hook of a
+ * y) reach well below the baseline at a line-height of 0.92, so a tight box shears
+ * them off. The negative margin gives the room back to the layout, leaving the
+ * optical line spacing exactly where it was.
+ */
+.home-line {
+  display: block;
+  overflow: hidden;
+  padding-bottom: 0.2em;
+  margin-bottom: -0.14em;
+}
+
+.home-line > span {
+  display: block;
+  transform: translateY(105%);
+  animation: home-rise 1.15s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation-delay: var(--d, 0ms);
+}
+
+@keyframes home-rise {
+  to {
+    transform: translateY(0);
+  }
+}
+
+.home-fade {
+  opacity: 0;
+  animation: home-fade-in 1s ease forwards;
+  animation-delay: var(--d, 0ms);
+}
+
+@keyframes home-fade-in {
+  to {
+    opacity: 1;
+  }
+}
+
+/* The hero recedes as it leaves — depth without a parallax scroll handler. */
+@supports (animation-timeline: view()) {
+  .home-recede {
+    animation: home-recede linear both;
+    animation-timeline: view(block);
+    animation-range: exit 0% exit 100%;
+  }
+}
+
+@keyframes home-recede {
+  to {
+    opacity: 0;
+    transform: translateY(-2.5rem) scale(0.965);
+  }
+}
+
+/* ------------------------------------------------------------ reveal on scroll */
+
+/*
+ * Driven by IntersectionObserver rather than a scroll timeline, because a reveal
+ * must be one-way: scrolling back up should not re-hide text you have already read.
+ * The observer adds `.is-in` once and disconnects.
+ *
+ * `.home-reveal` starts hidden ONLY after the script has claimed it (`data-armed`),
+ * so if JavaScript never runs the content is simply visible. Hiding content in CSS
+ * that only JavaScript can bring back is how a page ends up blank for someone.
+ */
+.home-reveal[data-armed="1"] {
+  opacity: 0;
+  transform: translateY(1.75rem);
+  transition:
+    opacity 0.85s cubic-bezier(0.16, 1, 0.3, 1),
+    transform 0.85s cubic-bezier(0.16, 1, 0.3, 1);
+  transition-delay: var(--d, 0ms);
+  will-change: opacity, transform;
+}
+
+.home-reveal[data-armed="1"].is-in {
+  opacity: 1;
+  transform: none;
+}
+
+/* ------------------------------------------------------------------- marquee */
+
+/*
+ * The specimen strip, moved by the reader rather than by a clock.
+ *
+ * It used to run on a 48s loop, which is the one piece of motion on the page that
+ * happened whether anyone was there or not — decoration by definition. Bound to the
+ * scroll it becomes a readout: the terms travel exactly as far as you have come, and
+ * they stop when you do.
+ *
+ * Unenhanced it is a still row of words, which is all it ever needed to be.
+ */
+.home-marquee {
+  display: flex;
+  width: max-content;
+}
+
+.home-marquee > * {
+  flex: none;
+}
+
+@supports (animation-timeline: scroll()) {
+  .home-marquee {
+    animation: home-marquee linear both;
+    animation-timeline: scroll(root block);
+  }
+}
+
+@keyframes home-marquee {
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+/* ------------------------------------------------------------ pinned pipeline */
+
+.home-pin {
+  position: sticky;
+  top: 0;
+  height: 100svh;
+  display: flex;
+  align-items: center;
+}
+
+/*
+ * Inactive steps are dimmed by colour, not by opacity on the whole row.
+ *
+ * Fading the `li` to 0.26 looked right and measured 2.16:1 on the titles — under the
+ * 3:1 large-text floor, and it multiplied down through the row, taking the already
+ * grey step numbers to roughly 2:1. These are not decorations; a reader scanning
+ * ahead to see where the pipeline is going has to be able to read them. Setting the
+ * colour instead pins every inactive element at --l-3's measured 6.49:1, and the
+ * live step still separates cleanly by going to pure white.
+ */
+.home-step .step-num,
+.home-step h3 {
+  color: var(--l-3);
+  transition: color 0.45s ease;
+}
+
+.home-step[data-active="1"] .step-num,
+.home-step[data-active="1"] h3 {
+  color: var(--ink);
+}
+
+/* The aside is genuinely supplementary, so it belongs only to the live step. */
+.home-step .step-note {
+  opacity: 0;
+  transition: opacity 0.45s ease;
+}
+
+.home-step[data-active="1"] .step-note {
+  opacity: 1;
+}
+
+.home-step-bar {
+  transform: scaleX(0.06);
+  transform-origin: 0 50%;
+  transition: transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.home-step[data-active="1"] .home-step-bar {
+  transform: scaleX(1);
+}
+
+/* ------------------------------------------------------------------- surfaces */
+
+/*
+ * A card here is a hairline and a column of space, not a box.
+ *
+ * Six bordered rectangles beside a bordered stat grid beside a bordered diagram is
+ * how a monochrome page turns into a page of boxes: with no colour to separate one
+ * kind of thing from another, the border is doing the only differentiating and it is
+ * saying the same thing everywhere. Hanging the content off a single top rule keeps
+ * the grid legible and gives the border back its meaning for the one element that
+ * still is a box — the ledger.
+ */
+.home-card {
+  position: relative;
+  border-top: 1px solid var(--rule);
+  padding-top: 1.75rem;
+  transition: border-color 0.3s ease;
+}
+
+.home-card::before {
+  content: "";
+  position: absolute;
+  inset: -1px auto auto 0;
+  height: 1px;
+  width: 0;
+  background: #fff;
+  transition: width 0.45s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.home-card:hover::before,
+.home-card:focus-within::before {
+  width: 100%;
+}
+
+/*
+ * Film grain. An SVG feTurbulence, so it costs no image request and no disk. At 4%
+ * it is invisible as texture and only does one job: break up the flat black on large
+ * screens, where an unbroken #000 field shows panel banding.
+ */
+.home-grain::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 50;
+  opacity: 0.04;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+.home-underline {
+  background-image: linear-gradient(currentColor, currentColor);
+  background-repeat: no-repeat;
+  background-position: 0 100%;
+  background-size: 0% 1px;
+  transition: background-size 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.home-underline:hover {
+  background-size: 100% 1px;
+}
+
+/* ------------------------------------------------------------------- the spine */
+
+/*
+ * The page's skeleton, and the thing that replaced eight identical section openings.
+ *
+ * Every section used to begin the same way — an uppercase eyebrow, a serif heading,
+ * a lede — so by the third one the reader had stopped reading the opening at all. The
+ * number and the running label now live in a gutter instead, hairline-separated from
+ * the column of prose, which frees the heading to be the first thing in the section
+ * rather than the second.
+ *
+ * The number is `sticky`, so it rides down the margin for exactly as long as its
+ * section is on screen and is replaced by the next one at the boundary. That is a
+ * reading position indicator that needs no JavaScript, no observer and no state — it
+ * simply cannot get out of step with the page, because it *is* the page.
+ */
+.home-spine {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 2rem;
+}
+
+@media (min-width: 768px) {
+  .home-spine {
+    grid-template-columns: 7.5rem minmax(0, 1fr);
+    gap: 0;
+  }
+}
+
+.home-spine-rail {
+  font-family: var(--mono);
+  font-size: 0.6875rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--l-3);
+}
+
+/* Below the breakpoint the gutter would be wider than the text it labels. */
+@media (min-width: 768px) {
+  .home-spine-rail {
+    border-right: 1px solid var(--rule);
+    padding-right: 1.5rem;
+  }
+}
+
+.home-spine-n {
+  display: block;
+}
+
+@media (min-width: 768px) {
+  .home-spine-n {
+    position: sticky;
+    top: 5.5rem;
+  }
+}
+
+.home-spine-n b {
+  display: block;
+  font-weight: 400;
+  font-size: 0.8125rem;
+  letter-spacing: 0.1em;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.home-spine-n span {
+  display: none;
+}
+
+@media (min-width: 768px) {
+  .home-spine-n span {
+    display: block;
+    margin-top: 0.75rem;
+    line-height: 1.5;
+    text-wrap: pretty;
+  }
+}
+
+/* On one line, in the flow, when there is no gutter to hang it in. */
+@media (max-width: 767px) {
+  .home-spine-rail {
+    display: flex;
+    align-items: baseline;
+    gap: 0.875rem;
+  }
+
+  .home-spine-n {
+    display: flex;
+    align-items: baseline;
+    gap: 0.875rem;
+  }
+
+  .home-spine-n span {
+    display: block;
+  }
+}
+
+/* ------------------------------------------------------------------ rule sweep */
+
+/*
+ * The hairline that opens a section draws itself in as the section arrives.
+ *
+ * It is `transform` on a 1px bar rather than a `width` transition, so it composites
+ * and never reflows the section under it. Where scroll timelines are unavailable the
+ * rule is simply already drawn — and where a timeline exists but never advances (a
+ * background tab, print), the worst case is a missing hairline, which is why this
+ * device is used for a rule and never for anything carrying words.
+ */
+.home-sweep {
+  height: 1px;
+  background: var(--rule);
+  transform-origin: 0 50%;
+}
+
+@supports (animation-timeline: view()) {
+  .home-sweep {
+    animation: home-sweep linear both;
+    animation-timeline: view(block);
+    /*
+     * Measured in `cover`, not `entry`. The subject is a 1px rule, and for a subject
+     * with no height the entry range collapses to an instant — the rule would snap
+     * rather than draw. `cover` on a zero-height box is a well-defined span: one
+     * viewport of scrolling from the moment it appears at the bottom edge.
+     */
+    animation-range: cover 0% cover 32%;
+  }
+}
+
+@keyframes home-sweep {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+/* -------------------------------------------------------------------- masthead */
+
+/*
+ * The opening screen, set as a masthead rather than as a hero.
+ *
+ * Each line of the title sits on its own hairline, so the three of them read as one
+ * stacked plate — the shape a broadsheet nameplate has — instead of as a paragraph
+ * that happens to be enormous. It also means the type is anchored: at 9.5rem on a
+ * wide screen, a headline floating in space has nothing to be measured against and
+ * reads as a stock template.
+ */
+.home-dateline {
+  font-family: var(--mono);
+  font-size: 0.6875rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--l-3);
+}
+
+.home-mast-line {
+  border-bottom: 1px solid var(--rule);
+}
+
+/*
+ * The ledger keeps its border. It is the one element on the page that is genuinely a
+ * panel of readings rather than a passage of prose, and now that the cards have given
+ * up their boxes it is the only thing a box can still mean.
+ */
+.home-ledger {
+  border: 1px solid var(--rule);
+}
+
+.home-ledger dl {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 0.45rem 1rem;
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  line-height: 1.4;
+}
+
+.home-ledger dd {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ------------------------------------------------------------------ stat band */
+
+/*
+ * The four numbers, hung off one rule each instead of caged in four bordered cells.
+ * Same information, and the numerals — which are the point — stop competing with a
+ * rectangle drawn around them.
+ */
+.home-stat {
+  border-top: 1px solid var(--rule);
+  padding-top: 1.5rem;
+}
+
+/* --------------------------------------------------------------------- motion */
+
+/*
+ * Not a courtesy. Large-scale scroll motion is a documented migraine and nausea
+ * trigger, so for anyone who has asked their OS to stop it, every animation here
+ * resolves immediately to its finished state — nothing is merely sped up, and
+ * nothing is left mid-transform.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .home *,
+  .home *::before,
+  .home *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .home .home-line > span {
+    transform: none;
+  }
+
+  .home .home-fade,
+  .home .home-reveal[data-armed="1"] {
+    opacity: 1;
+    transform: none;
+  }
+
+  .home .home-step {
+    opacity: 1;
+  }
+
+  /*
+   * The two scroll-driven devices resolve to their finished state explicitly. A
+   * clamped `animation-duration` does not reliably land a timeline-driven animation
+   * anywhere in particular, so each one is told what "arrived" means: the rule is
+   * drawn, and the specimen strip sits where it starts rather than part-travelled.
+   */
+  .home .home-sweep {
+    transform: scaleX(1);
+  }
+
+  .home .home-marquee {
+    transform: none;
+  }
+}
+
+/* ------------------------------------------------------- pinned pipeline sizing */
+
+.home-runway {
+  height: calc(var(--steps) * 100svh);
+}
+
+/*
+ * The body of a step is a grid row that grows from nothing, which animates cleanly
+ * without anyone having to measure the text first — the alternative, a max-height
+ * guess, either clips a long line or eases against dead space.
+ */
+.home-step-body {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.home-step[data-active="1"] .home-step-body {
+  grid-template-rows: 1fr;
+}
+
+/*
+ * Below the tablet breakpoint the pin is abandoned entirely. Eight screens of held
+ * scroll on a phone reads as a page that has stopped responding, and it puts the
+ * whole section behind a gesture. It becomes a list: every step open, no dimming,
+ * no sentinels doing anything.
+ */
+@media (max-width: 767px) {
+  .home-runway {
+    height: auto;
+  }
+
+  .home-pin {
+    position: static;
+    height: auto;
+    padding-block: 1rem;
+  }
+
+  .home-step .step-num,
+  .home-step h3 {
+    color: var(--ink);
+  }
+
+  .home-step .step-note {
+    opacity: 1;
+  }
+
+  .home-step-body {
+    grid-template-rows: 1fr;
+  }
+
+  .home-step-bar {
+    transform: scaleX(1);
+  }
+}
+
+/* ------------------------------------------------------------------- replay */
+
+/*
+ * The five candidates, side by side, held on one screen while the reader scrolls
+ * the run. Everything below is driven by `data-state` on the `li`, which comes
+ * from `candidateStateAt` — so the stylesheet has no opinion about ordering and
+ * cannot disagree with the component about what has happened yet.
+ *
+ * The pin stays under `prefers-reduced-motion`, deliberately. Sticky positioning
+ * and discrete content changes are not the parallax and transform-driven motion
+ * that rule exists to stop, the eight-stage section above already pins the same
+ * way, and un-pinning here would need the whole "everything open" ruleset copied
+ * for a second breakpoint. What reduced motion does turn off is every transition
+ * below, so the states change instantly instead of easing.
+ */
+
+.home-stage {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: clamp(0.5rem, 1.1vw, 1rem);
+}
+
+.home-cand-frame {
+  position: relative;
+  width: 100%;
+  /* Capped against the viewport rather than only by the column width: five 9:16
+     frames at full ratio are taller than a laptop screen, and a pinned section that
+     overflows strands its own readout permanently below the fold. */
+  aspect-ratio: 9 / 16;
+  max-height: 44svh;
+  overflow: hidden;
+  border: 1px solid var(--rule-soft);
+  background: rgba(255, 255, 255, 0.02);
+  transition:
+    border-color 0.5s ease,
+    opacity 0.5s ease;
+}
+
+.home-cand-still,
+.home-cand-clip {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.home-cand-still {
+  opacity: 0;
+  /* Greyed until the ranking has spoken, so the colour arriving *is* the promotion.
+     With no hue anywhere else on the page, this is the only saturation there is. */
+  filter: grayscale(1) contrast(0.95);
+  transition:
+    opacity 0.7s cubic-bezier(0.16, 1, 0.3, 1),
+    filter 0.7s ease;
+}
+
+.home-cand-clip {
+  opacity: 0;
+  transition: opacity 0.6s ease;
+}
+
+.home-cand-clip[data-playing="1"] {
+  opacity: 1;
+}
+
+/* The fallback when no showcase has been built: the design point in words. */
+.home-cand-plate {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: flex-end;
+  padding: 0.875rem;
+  font-size: 0.6875rem;
+  line-height: 1.5;
+  color: var(--l-3);
+  opacity: 0;
+  transition: opacity 0.7s ease;
+}
+
+.home-cand-slot,
+.home-cand-rank {
+  position: absolute;
+  z-index: 2;
+  font-size: 0.625rem;
+  letter-spacing: 0.18em;
+  line-height: 1;
+  padding: 0.375rem 0.5rem;
+}
+
+.home-cand-slot {
+  top: 0;
+  left: 0;
+  color: var(--l-3);
+  background: rgba(0, 0, 0, 0.55);
+}
+
+.home-cand-rank {
+  right: 0;
+  bottom: 0;
+  color: #000;
+  background: #fff;
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- states --- */
+
+.home-cand[data-state="composing"] .home-cand-still,
+.home-cand[data-state="gated"] .home-cand-still,
+.home-cand[data-state="scored"] .home-cand-still,
+.home-cand[data-state="composing"] .home-cand-plate,
+.home-cand[data-state="gated"] .home-cand-plate,
+.home-cand[data-state="scored"] .home-cand-plate {
+  opacity: 1;
+}
+
+.home-cand[data-state="gated"] .home-cand-frame,
+.home-cand[data-state="scored"] .home-cand-frame {
+  border-color: var(--rule);
+}
+
+.home-cand[data-state="promoted"] .home-cand-still,
+.home-cand[data-state="promoted"] .home-cand-plate {
+  opacity: 1;
+  filter: none;
+}
+
+.home-cand[data-state="promoted"] .home-cand-frame {
+  border-color: #fff;
+}
+
+/*
+ * A cut candidate stays on screen, dimmed. Removing it would be the page quietly
+ * agreeing that three of the five never mattered — the whole claim is that they
+ * were generated, measured and then not paid for, and the reader has to be able
+ * to still see them to believe that.
+ */
+.home-cand[data-state="cut"] .home-cand-still,
+.home-cand[data-state="cut"] .home-cand-plate {
+  opacity: 0.28;
+}
+
+.home-cand[data-state="cut"] .home-cand-frame {
+  border-color: var(--rule-soft);
+}
+
+/* --- the readout under each frame --- */
+
+.home-cand-read {
+  /* Fixed, so the row does not jump every time the readout changes kind. */
+  min-height: 4.75rem;
+  padding-top: 0.75rem;
+  font-size: 0.6875rem;
+  line-height: 1.5;
+}
+
+.home-cand-idle {
+  color: var(--l-4);
+}
+
+.home-cand-concept {
+  color: var(--l-2);
+}
+
+.home-cand-checks dt {
+  color: var(--l-3);
+  font-size: 0.625rem;
+  letter-spacing: 0.08em;
+}
+
+.home-cand-checks dd {
+  font-variant-numeric: tabular-nums;
+  color: var(--l-1);
+}
+
+.home-cand-checks dd[data-passed="0"] {
+  color: var(--l-3);
+  text-decoration: line-through;
+}
+
+.home-cand-score {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.home-cand-figure {
+  font-family: var(--serif);
+  font-size: 1.5rem;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+/*
+ * Every score on this page came from the heuristic baseline, not a trained model.
+ * The console marks these through `scoreDisplay`; the landing page has no excuse
+ * to be looser about it than the tool is.
+ */
+.home-cand-stub {
+  color: var(--l-3);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  font-size: 0.5625rem;
+}
+
+.home-cand-verdict {
+  color: var(--l-2);
+}
+
+.home-cand[data-state="cut"] .home-cand-figure,
+.home-cand[data-state="cut"] .home-cand-verdict {
+  color: var(--l-3);
+}
+
+/* --- act ticks --- */
+
+.home-acts {
+  gap: 0.5rem;
+}
+
+.home-acts-tick {
+  height: 1px;
+  flex: 1;
+  background: var(--rule);
+  transition: background-color 0.45s ease;
+}
+
+.home-acts-tick[data-done="1"] {
+  background: #fff;
+}
+
+/*
+ * On a phone the pin is already dropped by the rule above, so the replay becomes a
+ * still picture of the finished run: the component holds progress at 1 when there
+ * is no runway to scrub. Five frames across a 375px screen would be 60px each, so
+ * they wrap to a grid instead.
+ */
+@media (max-width: 767px) {
+  .home-stage {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.75rem;
+  }
+
+  .home-cand-frame {
+    max-height: none;
+  }
+
+  .home-cand-read {
+    min-height: 0;
+  }
+}

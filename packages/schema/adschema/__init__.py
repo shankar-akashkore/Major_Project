@@ -44,7 +44,7 @@ from .candidates import (
     ScoreBreakdown,
     VideoCandidate,
 )
-from .delivery import AudioReport, DeliveryReport, ReframeReport
+from .delivery import AudioReport, DeliveryReport, EndCardReport, ReframeReport
 from .enums import (
     AspectRatio,
     BackgroundTreatment,
@@ -64,12 +64,14 @@ from .enums import (
     Tier,
     Vertical,
     default_scale_for,
+    sweep_colour_for,
 )
 from .intake import CutoutReport, FaceReport, IntakeReport, ReferenceReport
 from .job import BudgetStatus, JobRecord, JobResult, SpendEntry, StageEvent
 from .request import (
     DEFAULT_CANDIDATE_COUNT,
     DEFAULT_VIDEO_COUNT,
+    END_CARD_SECONDS,
     MAX_DURATION_S,
     MIN_DURATION_S,
     AdJobRequest,
@@ -99,6 +101,7 @@ __all__ = [
     "ProductScale",
     "PromptStyle",
     "default_scale_for",
+    "sweep_colour_for",
     # request
     "AdJobRequest",
     "AssetRef",
@@ -109,6 +112,7 @@ __all__ = [
     "DEFAULT_VIDEO_COUNT",
     "MIN_DURATION_S",
     "MAX_DURATION_S",
+    "END_CARD_SECONDS",
     # brief
     "BriefSet",
     "DesignPoint",
@@ -142,6 +146,7 @@ __all__ = [
     "FaceReport",
     "IntakeReport",
     "DeliveryReport",
+    "EndCardReport",
     "ReframeReport",
     "AudioReport",
     "ReferenceReport",

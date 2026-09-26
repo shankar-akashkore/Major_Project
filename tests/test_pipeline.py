@@ -20,12 +20,15 @@ from adschema import (
     MIN_DURATION_S,
     CameraAngle,
     ConsentAttestation,
+    GateCheck,
+    GateResult,
     GateVerdict,
     JobState,
     Platform,
     Stage,
 )
 from adworker import Pipeline
+from adworker import pipeline as AW_PIPELINE
 from adworker.sampler import describe_diversity, max_achievable_distance
 
 
@@ -571,3 +574,50 @@ async def test_concurrency_is_bounded_by_the_configured_limit(storage, governor,
 
     assert peak <= 2, f"{peak} generations were in flight against a limit of 2"
     assert peak == 2, "nothing ran concurrently at all"
+
+
+async def test_a_retried_candidate_does_not_push_the_progress_bar_past_full(
+    pipeline, make_request, monkeypatch
+):
+    """A retry is a second attempt at one slot, not a sixth candidate.
+
+    The landed-candidate counter was shared with the retry pass, so one retry on a
+    five-candidate job counted a sixth arrival and emitted ``6/5`` — a progress of
+    1.2 into a field bounded at 1.0, which raised inside ``_emit`` and killed the
+    job *after* it had paid for six live generations.  The branch had no coverage
+    because a mock gate never returns RETRY.
+    """
+    real = AW_PIPELINE.evaluate_image
+
+    def _fail_slot_zero_once(candidate, request, storage, attempt, *args, **kwargs):
+        result = real(candidate, request, storage, attempt, *args, **kwargs)
+        if candidate.brief.index != 0 or attempt != 1:
+            return result
+        return GateResult(
+            verdict=GateVerdict.RETRY,
+            attempt=attempt,
+            checks=[
+                GateCheck(
+                    name="contrast",
+                    value=0.0,
+                    threshold=1.0,
+                    passed=False,
+                    detail="forced failure, so the retry pass actually runs",
+                )
+            ],
+        )
+
+    monkeypatch.setattr(AW_PIPELINE, "evaluate_image", _fail_slot_zero_once)
+
+    record = await pipeline.run(make_request(candidate_count=5, video_count=2))
+
+    assert record.state is JobState.COMPLETED, record.error or record.refusal_reason
+
+    # The bound the schema enforces, asserted on every event rather than on the one
+    # that happened to break: any future counter that overshoots fails here first.
+    assert all(0.0 <= e.progress <= 1.0 for e in record.events)
+    assert max(e.overall_progress for e in record.events) <= 1.0
+
+    landed = [e.message for e in record.events if e.message.startswith("candidate ")]
+    assert "candidate 6/5 done" not in landed
+    assert landed.count("candidate 5/5 done") == 1

@@ -77,13 +77,18 @@ export default function JobPage({ params }: { params: Promise<{ jobId: string }>
 
   return (
     <div className="space-y-8">
-      <div>
-        <Link href="/jobs" className="text-xs text-zinc-500 hover:underline">
+      <div className="rise">
+        <Link
+          href="/jobs"
+          className="text-[11px] text-[var(--l-3)] transition-colors hover:text-[var(--ink)] hover:underline"
+        >
           ← jobs
         </Link>
-        <div className="mt-2 flex flex-wrap items-baseline justify-between gap-3">
-          <h1 className="text-xl font-semibold text-zinc-100">{request.product_name}</h1>
-          <span className="font-mono text-xs text-zinc-500">{jobId}</span>
+        <div className="mt-3 flex flex-wrap items-baseline justify-between gap-3">
+          <h1 className="serif text-[2.5rem] leading-none text-[var(--ink)]">
+            {request.product_name}
+          </h1>
+          <span className="text-[11px] text-[var(--l-3)]">{jobId}</span>
         </div>
         <div className="mt-2 flex flex-wrap gap-1.5">
           <Badge>{humanise(request.platform)}</Badge>
@@ -105,7 +110,7 @@ export default function JobPage({ params }: { params: Promise<{ jobId: string }>
           <Badge>{seconds(request.duration_seconds)}</Badge>
           <Badge>seed {request.seed}</Badge>
           {request.locked_angle ? (
-            <Badge tone="warn" title="All three candidates were shot at one angle.">
+            <Badge tone="warn" title="Every candidate was shot at one angle.">
               angle locked
             </Badge>
           ) : null}
@@ -113,7 +118,7 @@ export default function JobPage({ params }: { params: Promise<{ jobId: string }>
         </div>
       </div>
 
-      <Card className="p-4">
+      <Card className="rise p-5">
         <StageProgress events={events} state={state} streaming={streaming} />
         <div className="mt-3">
           <EventLog events={events} />
@@ -126,7 +131,7 @@ export default function JobPage({ params }: { params: Promise<{ jobId: string }>
       ) : null}
 
       {stubbed ? (
-        <Card className="border-warn-500/30 bg-warn-950/40 p-3">
+        <Card className="rise border-dashed border-[var(--l-4)] p-4">
           <Caveat>
             Every score on this page is a placeholder. The ordering is what the pipeline actually
             produced; the numbers are not predictions and are not comparable across jobs. A trained
@@ -169,7 +174,7 @@ function IntakePanel({ intake }: { intake: IntakeReport }) {
   return (
     <section>
       <SectionTitle hint={`palette from ${intake.palette_source}`}>Intake</SectionTitle>
-      <Card className="space-y-3 p-4">
+      <Card className="rise space-y-3 p-5">
         <div className="flex flex-wrap items-center gap-4">
           <div className="flex items-center gap-1.5">
             {intake.palette.map((colour, index) => (

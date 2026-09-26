@@ -104,8 +104,8 @@ Four rules, each with a test in `lib/presentation.test.ts`:
 1. **A stub score is never plain text.** `scoreDisplay()` returns a tagged union —
    `value` | `stub` | `absent` — so the stub case has to be handled rather than
    skipped. A returned boolean beside a string would get dropped at the call site
-   and nothing would complain. On screen a placeholder renders in the warning
-   colour, struck through, naming the model version that produced it: the
+   and nothing would complain. On screen a placeholder renders struck through in a
+   dashed badge carrying ▲, naming the model version that produced it: the
    *ordering* is real, the *value* is not comparable to anything.
 2. **A missing number says so.** `null` and `NaN` render as `—`, never `0%`. A zero
    is a measurement and an absence is not, and at a glance they are identical.
@@ -117,8 +117,48 @@ Four rules, each with a test in `lib/presentation.test.ts`:
    free run both print `$0.00` — the difference between the cache working and having
    paid twice.
 
-The warning colour is the same amber the report's SVG figures use, so a screenshot
-of this UI and a figure in the write-up agree about what a caveat looks like.
+### A caveat is a shape first, and a colour second
+
+This used to read: *the warning colour is the same amber the report's SVG figures
+use, so a screenshot of this UI and a figure in the write-up agree about what a
+caveat looks like.* That sentence has been wrong twice — once when the app went
+fully monochrome, and again now that three colours have come back — so what
+follows is the rule rather than a hex value that keeps going stale.
+
+**The border and the glyph are the carrier. The colour is a shortcut.** Both live
+in `TONE` and `GLYPH` in `components/ui.tsx`:
+
+| Tone | Means | Border | Glyph | Colour |
+|---|---|---|---|---|
+| `neutral` | no claim | hairline | — | — |
+| `good` | passed, replayable, winner | solid | ✓ | green `#4ade80` |
+| `warn` | placeholder, unverified, mock | **dashed** | ▲ | amber `#fbbf24` |
+| `bad` | failed, refused, live | **2px** | ✕ | red `#f87171` |
+| `info` | streaming, running | **dotted** | ● | — |
+
+The ordering is not stylistic. Green beside red is the one pairing a red-green
+colourblind reader loses, and it is usable here only because losing it costs
+nothing — 2px-solid-✕ and hairline-✓ still say which is which. Take the glyphs
+away and this palette becomes an accessibility bug. `components.test.tsx` asserts
+that each tone keeps its own shape, so that ordering cannot be quietly reversed.
+
+Everything that is not a verdict stays black and white: buttons, rules, headings,
+nav, the whole landing page — and `info`, which means *running*, a state that
+resolves itself in seconds rather than a judgement about anything. Three accents
+on an otherwise monochrome app is what makes the three impossible to miss.
+
+Live mode is the exception that proves it: a **solid red plate**, the only filled
+badge in the app, with black text because white on `#ef4444` measures 3.76:1 and
+fails AA at 11px. The one badge that has to be read from across a room is not the
+one to get that wrong.
+
+The agreement with the report figures is the ▲ itself, which both surfaces use,
+rather than a shared hex value.
+
+One deliberate exception. The studio-sweep swatch in the console renders the real
+hex the generator will paint — `#87637b` stays `#87637b`. Greying it out would be
+this document's own failure mode: a screen telling a tidy lie about the data
+underneath it. The chrome is black and white; measurements are whatever they are.
 
 ### The mode is always on screen
 

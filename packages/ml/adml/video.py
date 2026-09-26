@@ -821,6 +821,142 @@ def render_padded(
     return _run_filtergraph(data, info.container, filters, crf=crf)
 
 
+def _even(value: int) -> int:
+    """Round down to an even number.
+
+    H.264 with ``yuv420p`` chroma subsampling cannot encode an odd dimension, and a
+    mock clip written as a GIF has no such constraint — so a synthetic 257 px frame
+    reaches the encoder and is rejected. Rounding down rather than up keeps the
+    result inside the source.
+    """
+    return value - (value % 2)
+
+
+def trim(data: bytes, seconds: float, *, crf: int = H264_CRF) -> bytes:
+    """Cut a clip down to its first ``seconds``.
+
+    Needed because a provider delivers the duration *it* offers, not the duration
+    asked for: Kling's image-to-video takes ``duration`` as the enum {"5", "10"}
+    and :meth:`adproviders.pricing.VideoPrice.snap_duration` rounds up, so a
+    request for 8.5 s arrives as a 10 s file. Trimming here is what makes the
+    delivered artefact the length the job promised.
+
+    ``setpts`` is not optional. ``trim`` alone leaves the presentation timestamps
+    where they were, so the output claims the source's duration while holding only
+    part of its frames — which is exactly the kind of lie
+    :func:`verify_duration` exists to catch.
+    """
+    if seconds <= 0:
+        raise ValueError(f"cannot trim to {seconds}s")
+    info = probe(data)
+    filters = f"trim=0:{seconds:.3f},setpts=PTS-STARTPTS"
+    return _run_filtergraph(data, info.container, filters, crf=crf)
+
+
+def append_still(
+    data: bytes,
+    still_png: bytes,
+    seconds: float,
+    *,
+    fade_seconds: float = 0.3,
+    crf: int = H264_CRF,
+) -> bytes:
+    """Concatenate a held still onto the end of a clip, fading through black.
+
+    Two inputs, so this cannot go through :func:`_run_filtergraph` — but it mirrors
+    its determinism flags, since a delivered file that differs run to run breaks the
+    cost governor's content-hash cache the same way a non-deterministic encode does.
+
+    The still is scaled and padded to the clip's own geometry rather than trusted to
+    match it. A caller that renders the card at the wrong size would otherwise get
+    ``concat`` refusing the join, and a delivery stage that fails on a rounding
+    difference is worse than one that letterboxes.
+
+    ``setsar=1`` on both branches for the same reason: MP4 from a generation API
+    frequently carries a non-unit sample aspect ratio, and ``concat`` requires the
+    two streams to agree on it.
+    """
+    if seconds <= 0:
+        raise ValueError(f"cannot hold a still for {seconds}s")
+    info = probe(data)
+    ffmpeg = _require_ffmpeg(info.container)
+    width, height = _even(info.width), _even(info.height)
+    # A fade cannot outlast what it fades. A 0.3 s dip out of a 1.5 s card is
+    # deliberate; a 0.3 s dip out of a 0.2 s one would be a black card.
+    fade = max(0.0, min(fade_seconds, seconds / 2, info.duration_seconds / 2))
+    out_start = max(0.0, info.duration_seconds - fade)
+
+    source = _write_temp(data, info.container)
+    card = _write_temp(still_png, "png")
+    target = _write_temp(b"", "mp4")
+    try:
+        graph = (
+            f"[0:v]scale={width}:{height},setsar=1,format=yuv420p,"
+            f"fade=t=out:st={out_start:.3f}:d={fade:.3f}[ad];"
+            f"[1:v]scale={width}:{height}:force_original_aspect_ratio=decrease,"
+            f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,"
+            f"format=yuv420p,fade=t=in:st=0:d={fade:.3f}[card];"
+            f"[ad][card]concat=n=2:v=1:a=0[out]"
+        )
+        proc = subprocess.run(
+            [
+                ffmpeg,
+                "-v",
+                "error",
+                "-y",
+                "-fflags",
+                "+bitexact",
+                "-i",
+                source,
+                "-loop",
+                "1",
+                "-t",
+                f"{seconds:.3f}",
+                "-framerate",
+                f"{info.fps:.6f}",
+                "-i",
+                card,
+                "-filter_complex",
+                graph,
+                "-map",
+                "[out]",
+                "-c:v",
+                "libx264",
+                "-preset",
+                "veryfast",
+                "-crf",
+                str(crf),
+                "-pix_fmt",
+                "yuv420p",
+                "-threads",
+                "1",
+                "-map_metadata",
+                "-1",
+                "-fflags",
+                "+bitexact",
+                "-flags:v",
+                "+bitexact",
+                "-movflags",
+                "+faststart",
+                "-f",
+                "mp4",
+                target,
+            ],
+            capture_output=True,
+            timeout=SUBPROCESS_TIMEOUT_S,
+        )
+        if proc.returncode != 0:
+            raise ClipDecodeError(
+                f"appending the end card failed: {proc.stderr.decode('utf-8', 'replace').strip()}"
+            )
+        with open(target, "rb") as fh:
+            return fh.read()
+    finally:
+        os.unlink(source)
+        os.unlink(card)
+        os.unlink(target)
+
+
 def encode_mp4(frames: list[np.ndarray], fps: float, *, crf: int = H264_CRF) -> bytes:
     """Encode RGB frames to an H.264 MP4.
 

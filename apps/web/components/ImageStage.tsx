@@ -138,11 +138,22 @@ export function ImageStage({ images }: { images: ImageCandidate[] }) {
                       predicted #{rankOf.get(slot)}
                     </span>
                   ) : null}
+                  {/*
+                    On the `good` scale rather than a raw `emerald`, which is what it
+                    used to be — and which is why it stayed green through the pass
+                    that took every other hue out of the app. A hardcoded colour is
+                    invisible to a palette change by definition.
+
+                    Filled rather than a `Badge` because it sits on top of a
+                    photograph: an outline badge needs a known background to read
+                    against, and this one has whatever the candidate happens to be.
+                    The word carries the meaning, so the colour is still not alone.
+                  */}
                   {cut > 0 ? (
                     <span
                       className={
                         image.promoted
-                          ? "rounded bg-emerald-500/90 px-1.5 py-0.5 text-[10px] font-medium text-emerald-950"
+                          ? "rounded bg-good-500/90 px-1.5 py-0.5 text-[10px] font-medium text-good-950"
                           : "rounded bg-zinc-950/85 px-1.5 py-0.5 text-[10px] text-zinc-400"
                       }
                     >
@@ -188,11 +199,30 @@ export function ImageStage({ images }: { images: ImageCandidate[] }) {
                     {gate.failed.length > 0 ? (
                       <ul className="mt-1.5 space-y-0.5">
                         {gate.failed.map((check) => (
-                          <li key={check.name} className="text-[11px] text-bad-400">
+                          <li
+                            key={check.name}
+                            className={
+                              check.advisory
+                                ? "text-[11px] text-zinc-500"
+                                : "text-[11px] text-bad-400"
+                            }
+                          >
                             {humanise(check.name)} {num(check.value)} vs {num(check.threshold)}
+                            {check.advisory ? " — advisory" : null}
                           </li>
                         ))}
                       </ul>
+                    ) : null}
+
+                    {gate.advisory.length > 0 ? (
+                      <div className="mt-1.5">
+                        <Caveat>
+                          {prose(gate.advisory.map((check) => humanise(check.name)))} did not reject
+                          this candidate. The palette was read off the whole product photo, so it
+                          describes that photo&rsquo;s backdrop rather than the brand — supply a
+                          brand palette to make this a real check.
+                        </Caveat>
+                      </div>
                     ) : null}
 
                     {gate.pending.length > 0 ? (

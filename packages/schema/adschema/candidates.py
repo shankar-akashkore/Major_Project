@@ -40,6 +40,15 @@ class GateCheck(BaseModel):
         "be visibly distinguishable from one that genuinely verified something — "
         "otherwise the write-up would claim identity verification that never ran.",
     )
+    advisory: bool = Field(
+        default=False,
+        description="True when the check ran honestly but its *reference* is too weak "
+        "to throw a paid generation away on. Distinct from `implemented=False`: the "
+        "measurement is real and is worth reporting, it just cannot carry a veto. The "
+        "case this exists for is palette adherence measured against a palette read off "
+        "a whole product photograph — that palette describes the photo's backdrop, so "
+        "the number says how far the ad sits from someone's tablecloth.",
+    )
 
 
 class GateResult(BaseModel):
@@ -52,6 +61,17 @@ class GateResult(BaseModel):
     @property
     def failures(self) -> list[GateCheck]:
         return [c for c in self.checks if not c.passed]
+
+    @property
+    def blocking_failures(self) -> list[GateCheck]:
+        """The failures that actually cost the candidate its place.
+
+        An advisory failure is still reported — it is a real measurement and the
+        reason a frame looks off is worth knowing — but it does not reject, because
+        rejecting on it throws away a paid generation over a reference the system
+        has already admitted it does not trust.
+        """
+        return [c for c in self.checks if not c.passed and not c.advisory]
 
     @property
     def pending_checks(self) -> list[GateCheck]:
@@ -73,7 +93,10 @@ class GateResult(BaseModel):
     def reason(self) -> str:
         if self.verdict is GateVerdict.PASS:
             return "passed all quality checks"
-        failed = ", ".join(f"{c.name} ({c.value:.3f} vs {c.threshold:.3f})" for c in self.failures)
+        failed = ", ".join(
+            f"{c.name} ({c.value:.3f} vs {c.threshold:.3f})" + (" [advisory]" if c.advisory else "")
+            for c in self.failures
+        )
         return failed or "no specific check recorded"
 
 

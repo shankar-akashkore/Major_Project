@@ -60,9 +60,15 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   try {
     response = await fetch(`${API_BASE}${path}`, { cache: "no-store", ...init });
   } catch {
-    // A dead API is the single most likely failure in development, and "fetch
+    // A dead backend is the single most likely failure in development, and "fetch
     // failed" does not say which of the two servers is not running.
-    throw new ApiError(0, `Cannot reach the API at ${API_BASE}. Is uvicorn running?`);
+    //
+    // This string is the only one in this module a person ever reads — it renders in
+    // the shell's header, directly under the budget — so it says "the pipeline",
+    // the word the rest of the UI already uses for the thing doing the work. The
+    // identifiers around it stay honest about what this file is; naming the transport
+    // in an error message is a different thing from naming it in the code.
+    throw new ApiError(0, `Cannot reach the pipeline at ${API_BASE}. Is it running?`);
   }
   if (!response.ok) {
     throw new ApiError(response.status, await errorMessage(response));

@@ -16,6 +16,7 @@ export type Timestamp = string;
 
 export const MIN_DURATION_S = 8;
 export const MAX_DURATION_S = 10;
+export const END_CARD_SECONDS = 1.5;
 export const DEFAULT_CANDIDATE_COUNT = 5;
 export const DEFAULT_VIDEO_COUNT = 2;
 
@@ -30,14 +31,25 @@ export const ASPECT_RATIO_VALUES: readonly AspectRatio[] = [
   "16:9",
 ];
 
+/** What is behind the subject. */
 export type BackgroundTreatment =
   | "studio_white"
+  | "studio_purple"
+  | "studio_blue"
+  | "studio_carbon_black"
+  | "studio_green"
+  | "studio_coral"
   | "seamless_color"
   | "soft_gradient"
   | "lifestyle_scene"
   | "outdoor_natural";
 export const BACKGROUND_TREATMENT_VALUES: readonly BackgroundTreatment[] = [
   "studio_white",
+  "studio_purple",
+  "studio_blue",
+  "studio_carbon_black",
+  "studio_green",
+  "studio_coral",
   "seamless_color",
   "soft_gradient",
   "lifestyle_scene",
@@ -242,10 +254,21 @@ export const VERTICAL_VALUES: readonly Vertical[] = [
   "other",
 ];
 
+// --- Lookup tables ---
+
+export const STUDIO_SWEEP_HEX: Partial<Record<BackgroundTreatment, string>> = {
+  studio_white: "#ffffff",
+  studio_purple: "#87637b",
+  studio_blue: "#b8cce0",
+  studio_carbon_black: "#1c1c1c",
+  studio_green: "#a9d39e",
+  studio_coral: "#e8c3b0",
+};
+
 // --- Models ---
 
 /** Everything needed to run one ad job. */
-// derived (not on the wire): animates_everything, aspect_ratio, effective_scale
+// derived (not on the wire): animates_everything, has_end_card, website_display, ad_seconds, aspect_ratio, effective_scale
 export interface AdJobRequest {
   job_id: string;
   created_at: Timestamp;
@@ -258,6 +281,12 @@ export interface AdJobRequest {
   caption: string;
   /** e.g. 'Shop now' (max length 40) */
   cta_text: string;
+  /**
+   * Where the ad sends the viewer. Drawn on the closing brand slate, not spoken to the
+   * generator — a diffusion model cannot spell a URL. Left empty with no logo, no
+   * slate is produced and the ad runs full length. (max length 200)
+   */
+  website_url: string;
   /** Max length 1000. */
   additional_prompt: string;
   /**
@@ -318,9 +347,9 @@ export interface AppConfig {
   /** Slug replayed in replay mode, else null. */
   golden_set: string | null;
   /**
-   * The settings banner verbatim. It names the providers actually wired up, which is
-   * the difference between 'live mode' and 'live mode, but the video provider fell
-   * back to a mock'.
+   * The mode banner as an audience should see it. In live mode it carries the spend
+   * warning and the per-job cap, but not the model identifiers or the account total —
+   * those stay in the operator's copy, which prints to the terminal on startup.
    */
   banner: string;
   /**
@@ -447,6 +476,7 @@ export interface DeliveryReport {
    */
   previews: Record<string, AssetRef>;
   audio: AudioReport;
+  end_card: EndCardReport;
   /** Zip of every render, preview and report card. */
   bundle: AssetRef | null;
   warnings: string[];
@@ -470,6 +500,24 @@ export interface DesignPoint {
   composition: Composition;
   motion: MotionIntent;
   seed: number;
+}
+
+/** The closing brand slate, and whether it actually made it onto the file. */
+export interface EndCardReport {
+  attached: boolean;
+  /**
+   * How long the slate holds. Carved out of the requested duration, not added to it,
+   * so the delivered file still lands in the 8-10 s window.
+   */
+  seconds: number;
+  /**
+   * Where the slate points, stored whole. The slate itself draws only the host beside
+   * a search glyph — 'acme.com' — because that is the part a viewer could retype; the
+   * manifest keeps the rest.
+   */
+  website: string;
+  has_logo: boolean;
+  note: string;
 }
 
 /** Face presence in the human-model reference. */
@@ -503,10 +551,19 @@ export interface GateCheck {
    * up would claim identity verification that never ran.
    */
   implemented: boolean;
+  /**
+   * True when the check ran honestly but its *reference* is too weak to throw a paid
+   * generation away on. Distinct from `implemented=False`: the measurement is real and
+   * is worth reporting, it just cannot carry a veto. The case this exists for is
+   * palette adherence measured against a palette read off a whole product photograph —
+   * that palette describes the photo's backdrop, so the number says how far the ad
+   * sits from someone's tablecloth.
+   */
+  advisory: boolean;
 }
 
 /** The full quality-control verdict for a candidate. */
-// derived (not on the wire): failures, pending_checks, verified_identity, reason
+// derived (not on the wire): failures, blocking_failures, pending_checks, verified_identity, reason
 export interface GateResult {
   verdict: GateVerdict;
   checks: GateCheck[];
@@ -854,7 +911,10 @@ export interface ThemeSpec {
    */
   palette: string[];
   background: BackgroundTreatment;
-  /** Only meaningful when background is seamless_color. */
+  /**
+   * The backdrop colour. Supply it for seamless_color; the named studio sweeps set it
+   * themselves, and the other treatments ignore it.
+   */
   background_color: string | null;
   /** Set by intake when the palette was derived rather than supplied. */
   palette_auto_extracted: boolean;

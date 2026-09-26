@@ -43,7 +43,12 @@ function score(overall: number, isStub = false, extra: Record<string, unknown> =
   } as never;
 }
 
-function check(name: string, passed: boolean, implemented = true): GateCheck {
+function check(
+  name: string,
+  passed: boolean,
+  implemented = true,
+  advisory = false,
+): GateCheck {
   return {
     name,
     value: passed ? 0.9 : 0.2,
@@ -52,6 +57,7 @@ function check(name: string, passed: boolean, implemented = true): GateCheck {
     higher_is_better: true,
     detail: "",
     implemented,
+    advisory,
   };
 }
 
@@ -86,6 +92,31 @@ test("money keeps four decimal places", () => {
   // between the cache working and having paid twice.
   assert.equal(P.usd(0.0004), "$0.0004");
   assert.notEqual(P.usd(0.0004), P.usd(0));
+});
+
+test("a configured ceiling is shown at two decimals, not four", () => {
+  // A cap is a number somebody typed into config, not a charge. $2.5000 reads as
+  // a rounding bug in a header whose job is to be believed at a glance.
+  assert.equal(P.usdThreshold(2.5), "$2.50");
+  assert.equal(P.usdThreshold(20), "$20.00");
+  assert.equal(P.usdThreshold(0), "$0.00");
+});
+
+test("the two money formatters stay separate", () => {
+  // The reason usd() carries four decimals must not leak into the cap, and the
+  // cap's rounding must never be applied to something actually spent.
+  assert.notEqual(P.usdThreshold(2.5), P.usd(2.5));
+  assert.equal(P.usd(2.5), "$2.5000");
+  // A real sub-cent charge must still survive usd() and must NOT go through the
+  // threshold formatter, which would erase it.
+  assert.equal(P.usdThreshold(0.0004), "$0.00");
+  assert.equal(P.usd(0.0004), "$0.0004");
+});
+
+test("a missing ceiling renders as an absence too", () => {
+  for (const absent of [null, undefined, NaN, Infinity]) {
+    assert.equal(P.usdThreshold(absent), "—");
+  }
 });
 
 // --- A stub is not a prediction ------------------------------------------
@@ -249,6 +280,48 @@ test("the last event wins, so a replayed history lands on the right stage", () =
   ]);
   assert.equal(progress.stage, "video_rank");
   assert.equal(progress.label, "video rank");
+});
+
+test("a finished job's timeline comes from the record, not only the stream", () => {
+  // The regression: the stream is not opened for a terminal job, so a reload had
+  // nothing to draw and a job that ran five candidates showed 0% with every stage
+  // chip dim. The record was carrying all of it.
+  const ev = (stage: string, message: string, progress = 0) =>
+    ({ stage, state: "progress", at: `t-${message}`, message, progress }) as never;
+  const history = [ev("intake", "a"), ev("image_gen", "b", 1)];
+
+  assert.deepEqual(P.mergeEvents(history, []), history);
+  assert.equal(P.progressFrom(P.mergeEvents(history, [])).fraction, 3 / 8);
+
+  // Not 0% and not "queued" — which is what an empty list renders as.
+  assert.notEqual(P.progressFrom(P.mergeEvents(history, [])).stage, null);
+});
+
+test("the stream may be ahead of the record, never in disagreement with it", () => {
+  const ev = (stage: string, message: string) =>
+    ({ stage, state: "progress", at: `t-${message}`, message, progress: 0 }) as never;
+  const shared = ev("intake", "a");
+  const ahead = ev("image_gen", "b");
+
+  // The same event from both sources is one event, and order follows the record.
+  const merged = P.mergeEvents([shared], [shared, ahead]);
+  assert.equal(merged.length, 2);
+  assert.deepEqual(merged, [shared, ahead]);
+
+  // Mid-run the record has not caught up yet, so the stream stands alone.
+  assert.deepEqual(P.mergeEvents([], [shared, ahead]), [shared, ahead]);
+});
+
+test("identical moments from two sources collapse to one event", () => {
+  const one = { stage: "intake", state: "progress", at: "t0", message: "m" } as never;
+  const copy = { stage: "intake", state: "progress", at: "t0", message: "m" } as never;
+  assert.equal(P.eventKey(one), P.eventKey(copy));
+  assert.equal(P.mergeEvents([one], [copy]).length, 1);
+
+  // ...and a different moment does not.
+  const later = { stage: "intake", state: "progress", at: "t1", message: "m" } as never;
+  assert.notEqual(P.eventKey(one), P.eventKey(later));
+  assert.equal(P.mergeEvents([one], [later]).length, 2);
 });
 
 test("terminal states close the stream and running states do not", () => {
@@ -516,3 +589,40 @@ test("identityPending distinguishes a missing model from an unmeasurable frame",
   assert.equal(P.gateSummary(both as never)!.identityPending, true);
 });
 
+test("an advisory failure is separated from one that actually rejected", () => {
+  // The gate reports both; only one of them cost the candidate its place, and a UI
+  // that painted them the same colour would send someone hunting for a fault in a
+  // frame that was fine.
+  const summary = P.gateSummary(
+    gate([check("safe_area", false), check("palette_adherence", false, true, true)], "reject"),
+  )!;
+
+  assert.equal(summary.failed.length, 2);
+  assert.deepEqual(
+    summary.advisory.map((c: GateCheck) => c.name),
+    ["palette_adherence"],
+  );
+  assert.match(summary.text, /palette adherence 0\.200 under 0\.500 \(advisory\)/);
+  assert.doesNotMatch(summary.text, /safe area 0\.200 under 0\.500 \(advisory\)/);
+});
+
+test("the website hint previews the host, not what was typed", () => {
+  // The same table as `test_the_slate_draws_the_host_and_nothing_else` in
+  // `tests/test_endcard.py`. Two implementations of one rule, so the way to see
+  // them drift is to keep the cases side by side and identical.
+  const cases: [string, string][] = [
+    ["acme.com", "acme.com"],
+    ["https://acme.com", "acme.com"],
+    ["www.acme.com", "acme.com"],
+    ["https://www.acme.com", "acme.com"],
+    ["WWW.Acme.com", "Acme.com"],
+    ["acme.com/collections/aurora", "acme.com"],
+    ["acme.com/shop?ref=ad#top", "acme.com"],
+    ["shop.acme.co.uk", "shop.acme.co.uk"],
+    ["", ""],
+  ];
+
+  for (const [typed, drawn] of cases) {
+    assert.equal(P.websiteDisplay(typed), drawn, `typed ${JSON.stringify(typed)}`);
+  }
+});

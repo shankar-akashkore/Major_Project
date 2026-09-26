@@ -619,6 +619,52 @@ def test_replay_mode_is_free_by_construction():
     assert "no spend" in replay.describe().lower()
 
 
+def test_the_published_banner_names_no_provider_and_no_account_total():
+    """What the config endpoint publishes is what a room full of people can read.
+
+    ``describe`` is the operator's copy and keeps the model identifiers, because the
+    terminal it prints to belongs to whoever is paying and "the video provider fell
+    back to a mock" is exactly what that person needs. ``describe_public`` is what
+    reaches the browser, and it must not carry either the models actually wired up or
+    the size of the account behind them.
+
+    The warning and the per-job cap stay in both: those exist to be seen.
+    """
+    live = P.Settings(
+        provider_mode="live",
+        storage_backend="local",
+        image_provider="seedream-4.5-edit",
+        video_provider="kling-2.5-turbo-pro",
+        budget_total_usd=9.61,
+        budget_per_job_usd=2.50,
+    )
+
+    published = live.describe_public()
+
+    assert "seedream" not in published
+    assert "kling" not in published
+    assert "9.61" not in published, "the account total is not the audience's business"
+    assert "LIVE MODE" in published, "the warning is the whole point of the banner"
+    assert "2.50" in published, "the per-job cap is meant to be visible"
+
+    # The operator's copy is unchanged, and is where those details still live.
+    operator = live.describe()
+    assert "seedream-4.5-edit" in operator
+    assert "kling-2.5-turbo-pro" in operator
+    assert "9.61" in operator
+
+
+def test_the_quiet_modes_publish_exactly_what_they_always_did():
+    """Mock and replay name no provider and no amount, so they delegate.
+
+    A second string for them would be a second thing to keep in step, and the drift
+    would be silent: nobody reads a mock-mode banner closely.
+    """
+    for mode in ("mock", "replay"):
+        settings = P.Settings(provider_mode=mode, storage_backend="local")
+        assert settings.describe_public() == settings.describe()
+
+
 async def test_a_non_live_mode_still_refuses_a_priced_estimate(settings, ledger):
     """The assertion is written against 'not live', so replay inherits it.
 

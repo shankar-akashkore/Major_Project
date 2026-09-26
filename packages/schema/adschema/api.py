@@ -99,9 +99,10 @@ class AppConfig(BaseModel):
     video_provider: str
     golden_set: str | None = Field(description="Slug replayed in replay mode, else null.")
     banner: str = Field(
-        description="The settings banner verbatim. It names the providers actually "
-        "wired up, which is the difference between 'live mode' and 'live mode, but "
-        "the video provider fell back to a mock'."
+        description="The mode banner as an audience should see it. In live mode it "
+        "carries the spend warning and the per-job cap, but not the model "
+        "identifiers or the account total — those stay in the operator's copy, "
+        "which prints to the terminal on startup."
     )
     platforms: dict[Platform, PlatformProfile] = Field(
         default_factory=dict,

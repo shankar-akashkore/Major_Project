@@ -64,8 +64,8 @@ export default function JobsPage() {
 
   return (
     <div className="space-y-8">
-      <div className="flex items-end justify-between gap-4">
-        <h1 className="text-xl font-semibold text-zinc-100">Jobs</h1>
+      <div className="rise flex items-end justify-between gap-4">
+        <h1 className="serif text-[2.5rem] leading-none text-[var(--ink)]">Jobs</h1>
         <Button variant="ghost" onClick={jobs.reload}>
           Refresh
         </Button>
@@ -84,10 +84,10 @@ export default function JobsPage() {
         ) : null}
         <div className="grid gap-3 sm:grid-cols-2">
           {(golden.data ?? []).map((bundle) => (
-            <Card key={bundle.slug} className="p-4" as="article">
+            <Card key={bundle.slug} className="rise p-5" as="article">
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <h3 className="text-sm font-medium text-zinc-100">{bundle.title}</h3>
+                  <h3 className="serif text-[17px] text-[var(--ink)]">{bundle.title}</h3>
                   <p className="mt-0.5 font-mono text-[11px] text-zinc-500">{bundle.slug}</p>
                 </div>
                 {bundle.replayable ? (
@@ -143,7 +143,7 @@ export default function JobsPage() {
         {jobs.error ? <ErrorNote>{jobs.error}</ErrorNote> : null}
         {page && page.total === 0 ? <Empty>No jobs yet. Start one from “New job”.</Empty> : null}
         {page && page.jobs.length > 0 ? (
-          <Card className="overflow-hidden">
+          <Card className="rise overflow-hidden">
             <table className="w-full text-left text-sm">
               <thead className="border-b border-zinc-800 bg-zinc-900/60 text-[11px] tracking-wide text-zinc-400 uppercase">
                 <tr>
